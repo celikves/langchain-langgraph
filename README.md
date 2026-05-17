@@ -48,11 +48,6 @@ Sanal ortamınız aktifken (satır başında `(.venv)` yazarken), projenin ihtiy
 pip install langchain-community duckduckgo-search
 
 ```
-pip install python-dotenv
-```
-
-```
-
 
 ### LangSmith İzleme (Tracing) Entegrasyonu
 
@@ -85,5 +80,3 @@ LANGSMITH_PROJECT="ETGY Langchain"
 GEMINI_API_KEY="your-api-key"
 
 ```
-
-
