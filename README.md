@@ -52,3 +52,38 @@ pip install python-dotenv
 ```
 
 ```
+
+
+### LangSmith İzleme (Tracing) Entegrasyonu
+
+LangSmith'i projeye dahil etmek için kodun mimarisini değiştirmemize gerek yok, sadece ortam değişkenlerini (environment variables) sisteme tanıtmamız yeterli.
+
+#### 1. Adım: Gerekli Paketi Yükle
+
+Terminalde çevre değişkenlerini güvenle okuyabilmemiz için `python-dotenv` paketini yükle:
+
+```bash
+pip install python-dotenv
+
+```
+
+#### 2. Adım: LangSmith API Anahtarı Al
+
+1. [smith.langchain.com](https://smith.langchain.com/) adresine git ve ücretsiz bir hesap aç.
+2. Sol alt köşedeki **Settings (Ayarlar)** menüsünden **API Keys** bölümüne girip yeni bir anahtar (Personal Access Token) oluştur.
+
+#### 3. Adım: `.env` Dosyası Oluştur
+
+Proje klasörünün ana dizininde (etmentabanlı klasörü içinde) uzantısı olmayan `.env` adında gizli bir dosya oluştur ve içine şu bilgileri yaz (API anahtarını kendi aldığın anahtarla değiştir):
+
+```text
+
+LANGSMITH_TRACING=true
+LANGSMITH_ENDPOINT=https://eu.api.smith.langchain.com
+LANGSMITH_API_KEY="lsv2_your-api-key"
+LANGSMITH_PROJECT="ETGY Langchain"
+GEMINI_API_KEY="your-api-key"
+
+```
+
+

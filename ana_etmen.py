@@ -1,8 +1,12 @@
+import os
+from dotenv import load_dotenv
+
+# Ortam değişkenlerini (.env dosyasını) yükle - LangSmith'i aktif eder
+load_dotenv()
+
 from langchain_ollama import ChatOllama
 from langgraph.prebuilt import create_react_agent
 from langgraph.checkpoint.memory import MemorySaver
-
-# Kendi yazdığımız araçlar modülünden listeyi içe aktarıyoruz
 from tools import agent_tools
 
 # ==========================================
@@ -11,19 +15,6 @@ from tools import agent_tools
 
 llm = ChatOllama(model="qwen2.5:7b", temperature=0)
 memory = MemorySaver()
-
-# system_prompt = """Sen uzman bir sürpriz seyahat asistanısın. Kurallara kesinlikle uy:
-# 1. İki şehir arasındaki mesafeyi hesapla.
-# 2. Gidilecek tarihteki hava durumunu kontrol et.
-# 3. Bütçeye uygun mekanlar seç.
-# 4. Cevabını saat saat bir program şeklinde Türkçe sun."""
-
-# system_prompt = """Sen uzman bir sürpriz seyahat asistanısın. Planlama yaparken şu adımları izle:
-# 1. 'mesafe_ve_sure_hesapla' aracını kullanarak lojistik planını yap.
-# 2. 'hava_durumu_getir' aracıyla hedef tarihteki hava durumunu öğren.
-# 3. Öğrendiğin hava durumuna ve kullanıcının bütçesine (düşük/yüksek) uygun olacak şekilde, 'internette_mekan_ara' aracı için yaratıcı bir arama sorgusu oluştur (Örn: 'Bursa ucuz kapalı mekanlar').
-# 4. Tüm bu verileri sentezleyerek saat saat detaylı bir Türkçe program sun. Neden o mekanı seçtiğini hava durumu veya bütçe verisiyle destekleyerek kısaca açıkla."""
-
 
 system_prompt = """Sen üst düzey, otonom bir seyahat asistanısın. Asla kullanıcıya 'araştırabilirsiniz' veya 'bulabilirsiniz' gibi tavsiyelerde bulunma. İşi SEN yapmalısın.
 
@@ -35,7 +26,7 @@ system_prompt = """Sen üst düzey, otonom bir seyahat asistanısın. Asla kulla
 
 Eğer spesifik bir mekan ismi vermiyorsan, görevde başarısız olmuş sayılırsın."""
 
-# Ajanı import ettiğimiz agent_tools ile kuruyoruz
+# ÇÖZÜM: state_modifier kaldırıldı. Ajan sadece çekirdek bileşenlerle kuruluyor.
 agent_executor = create_react_agent(
     llm, 
     agent_tools, 
@@ -47,8 +38,8 @@ agent_executor = create_react_agent(
 # ==========================================
 
 if __name__ == "__main__":
-    print("\n[!] Akıllı Seyahat Ajanı Başlatılıyor...\n")
-    config = {"configurable": {"thread_id": "seyahat_projesi_v2"}}
+    print("\n[!] Akıllı Seyahat Ajanı Başlatılıyor... (LangSmith İzlemesi Aktif)\n")
+    config = {"configurable": {"thread_id": "seyahat_projesi_v4"}}
     
     kullanici_sorusu_1 = (
         "Hafta sonu arkadaşımla buluşacağım. Ben İstanbul'dan, o ise İzmir'den gelecek ve "
@@ -58,6 +49,7 @@ if __name__ == "__main__":
     
     print(f"1. İSTEK: {kullanici_sorusu_1}\n" + "-"*50)
     
+    # ÇÖZÜM: system_prompt doğrudan LangGraph durumuna (state) ilk mesaj olarak iletiliyor
     yanit_1 = agent_executor.invoke({
         "messages": [
             ("system", system_prompt),
@@ -72,6 +64,7 @@ if __name__ == "__main__":
     kullanici_sorusu_2 = "Peki bu plana akşam yemeği için bir de tatlıcı ekler misin?"
     print(f"2. İSTEK (HAFIZA TESTİ): {kullanici_sorusu_2}\n" + "-"*50)
     
+    # İkinci soruda system_prompt'a gerek yok, hafıza modülü zaten hatırlıyor
     yanit_2 = agent_executor.invoke({
         "messages": [
             ("user", kullanici_sorusu_2)
