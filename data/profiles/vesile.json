@@ -1,0 +1,14 @@
+{
+  "isim": "Vesile",
+  "kalkis_yeri": "Akhisar",
+  "sehir": "Akhisar",
+  "rol": "calisan",
+  "tercihler": ["tarihi mekanlar", "deniz manzarası"],
+  "butce": "orta",
+  "mesai": {
+    "baslangic": "08:00",
+    "bitis": "17:00",
+    "gunler": "hafta içi"
+  },
+  "notlar": "Kullanıcı tarafındaki kişi; cuma 17:00'ye kadar mesaide."
+}

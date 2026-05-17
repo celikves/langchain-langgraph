@@ -1,0 +1,13 @@
+{
+  "session_id": "ornek_seyahat",
+  "ana_gorev": "{kisi_sayisi} kişinin {hedef_sehir} şehrinde hafta sonu buluşması için uçtan uca lojistik ve etkinlik planı oluşturmak.",
+  "hedef_sehir": "Antalya",
+  "profil_dosyalari": [
+    "data/profiles/vesile.json",
+    "data/profiles/arkadas.json"
+  ],
+  "takvim_dosyasi": "data/mock_calendars.json",
+  "ortak_kisitlamalar": "Buluşma hedefi: {hedef_sehir}. Plan, profillerdeki mesai ve takvimdeki ortak boş zamanlara uymalıdır. Romantik çift veya sürpriz ilişki senaryosu varsayma; arkadaşlık buluşması planla.",
+  "is_akis_adimlari": "1. Zaman ve Takvim: Önce 'ortak_bos_zaman_bul' aracını çalıştır (saatleri uydurma). Mesai bitişleri, cuma akşamı trafiği ve terminal/istasyona varış sürelerini hesaba kat.\n2. Lojistik: Her katılımcının kalkış şehrinden {hedef_sehir}'e 'trafik_ve_mesafe_getir' ve 'calculate_distance_and_duration' ile rotaları hesapla; 'bilet_ara' ile uygun seferleri bul. Varış saatlerini senkronize et; bekleme sürelerini yaz.\n3. Hava: 'get_weather_forecast' ile {hedef_sehir} için buluşma tarihindeki hava verisini al.\n4. Mekan: 'search_places_online' — sorguya {hedef_sehir}, hava, boş zamanlar ve bütçeyi dahil et.\n5. Nihai plan: Araçlardan dönen gerçek mekan isimleriyle yola çıkıştan itibaren saat saat program oluştur.",
+  "ozel_kurallar": "- Asla 'araştırabilirsiniz' deme; tüm hesapları sen yap.\n- Spesifik gerçek mekan ismi vermezsen veya planı mesai saatleri içine sarkıtırsan görev başarısızdır.\n- Varış saatleri farklıysa erken geleni bekleme/karşılama adımlarını açıkça yaz.\n- Katılımcı sayısı kadar rota hesabı yap (her kalkış → {hedef_sehir})."
+}

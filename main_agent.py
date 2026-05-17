@@ -4,34 +4,21 @@ from dotenv import load_dotenv
 
 load_dotenv()
 
-from langchain_ollama import ChatOllama
-from langgraph.checkpoint.memory import MemorySaver
-from langgraph.prebuilt import create_react_agent
-
-from prompts import SCENARIO_DEFAULTS, build_prompt_template
-from tools import agent_tools
+from session_config import DEFAULT_SESSION_PATH
+from single_agent_graph import single_agent
 
 # ==========================================
-# ANA ETMEN VE MİMARİ KURULUMU
-# ==========================================
-
-llm = ChatOllama(model="qwen2.5:7b", temperature=0)
-memory = MemorySaver()
-prompt_template = build_prompt_template()
-
-agent_executor = create_react_agent(
-    llm,
-    agent_tools,
-    checkpointer=memory,
-)
-
-# ==========================================
-# ANA AKIŞ VE HAFIZA TESTİ
+# TEK AJAN — DİNAMİK OTURUM + StateGraph
 # ==========================================
 
 if __name__ == "__main__":
-    print("\n[!] Akıllı Seyahat Ajanı Başlatılıyor... (LangSmith İzlemesi Aktif)\n")
-    config = {"configurable": {"thread_id": "travel_project_v6"}}
+    print("\n[!] Dinamik Seyahat Ajanı (StateGraph + JSON oturum)\n")
+    config = {"configurable": {"thread_id": "dynamic_travel_v1"}}
+
+    initial_state = {
+        "session_config_path": str(DEFAULT_SESSION_PATH),
+        "messages": [],
+    }
 
     user_query_1 = (
         "Ben Manisa Akhisar'dan, en yakın arkadaşım Ankara'dan yola çıkacak. "
@@ -41,14 +28,16 @@ if __name__ == "__main__":
         "cumartesi ve pazarı kapsayan detaylı bir plan hazırlar mısın? Bütçemiz orta."
     )
 
-    print(f"1. İSTEK: {user_query_1}\n" + "-" * 50)
+    print(f"Oturum: {DEFAULT_SESSION_PATH}")
+    print(f"\n1. İSTEK: {user_query_1}\n" + "-" * 50)
 
-    messages_1 = prompt_template.format_messages(
-        messages=[("user", user_query_1)],
-        **SCENARIO_DEFAULTS,
+    response_1 = single_agent.invoke(
+        {**initial_state, "messages": [("user", user_query_1)]},
+        config,
     )
 
-    response_1 = agent_executor.invoke({"messages": messages_1}, config)
+    print("\n=== KATILIMCI BAĞLAMI (state) ===")
+    print(response_1.get("kullanici_baglami", "")[:500], "...")
 
     print("\n=== NİHAİ PLAN ===\n" + response_1["messages"][-1].content)
 
@@ -60,9 +49,9 @@ if __name__ == "__main__":
         "vakit geçirmek istiyoruz. Saatleri buna göre günceller misin?"
     )
 
-    print(f"2. İSTEK (HAFIZA TESTİ): {user_query_2}\n" + "-" * 50)
+    print(f"2. İSTEK (HAFIZA): {user_query_2}\n" + "-" * 50)
 
-    response_2 = agent_executor.invoke(
+    response_2 = single_agent.invoke(
         {"messages": [("user", user_query_2)]},
         config,
     )

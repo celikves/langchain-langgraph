@@ -143,11 +143,11 @@ def _get_tavily_search() -> TavilySearchResults:
 
 
 @tool
-def ortak_bos_zaman_bul(takvim_dosya_yolu: str = "") -> str:
+def ortak_bos_zaman_bul(takvim_dosya_yolu: str | None = None) -> str:
     """İki kişinin takvimini karşılaştırıp ortak boş saatleri döndürür (saf Python, halüsinasyonsuz).
     Boş bırakılırsa varsayılan mock JSON kullanılır."""
     try:
-        path = takvim_dosya_yolu.strip() or None
+        path = (takvim_dosya_yolu or "").strip() or None
         data = load_calendars(path) if path else load_calendars()
         slots = find_common_free_slots(data)
         return json.dumps(

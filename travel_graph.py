@@ -13,7 +13,7 @@ from langgraph.prebuilt import ToolNode
 
 from calendar_logic import find_common_free_slots, load_calendars, summarize_calendars_for_llm
 from graph_prompts import REVIEW_SYSTEM_PROMPT, format_planner_system_prompt
-from prompts import SCENARIO_DEFAULTS
+from session_config import build_session_context
 from state import SeyahatState
 from tools import surprise_visit_tools
 
@@ -34,14 +34,10 @@ def calendar_node(state: SeyahatState) -> dict:
     kisiler = data["kisiler"]
     hedef = data["meta"].get("hedef_sehir", "Antalya")
     lokasyonlar = {
-        "calisan": {
-            "ad": kisiler["kisi_1"]["ad"],
-            "sehir": kisiler["kisi_1"]["sehir"],
-        },
-        "arkadas": {
-            "ad": kisiler["kisi_2"]["ad"],
-            "sehir": kisiler["kisi_2"]["sehir"],
-        },
+        "katilimcilar": [
+            {"ad": k["ad"], "sehir": k["sehir"], "rol": k.get("rol", key)}
+            for key, k in kisiler.items()
+        ],
         "bulusma_noktasi": hedef,
     }
 
@@ -81,9 +77,14 @@ def planner_node(state: SeyahatState) -> dict:
     user_msgs = [m for m in state.get("messages", []) if isinstance(m, HumanMessage)]
     last_user = user_msgs[-1].content if user_msgs else "Antalya buluşma planı oluştur."
 
+    session_ctx = build_session_context()
+    planner_system = format_planner_system_prompt(
+        hedef_sehir=hedef,
+        kullanici_baglami=session_ctx["kullanici_baglami"],
+    )
     response = llm_with_tools.invoke(
         [
-            SystemMessage(content=format_planner_system_prompt(**SCENARIO_DEFAULTS)),
+            SystemMessage(content=planner_system),
             HumanMessage(content=f"{context}\n\nKullanıcı isteği:\n{last_user}"),
         ]
     )

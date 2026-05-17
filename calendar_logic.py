@@ -154,11 +154,13 @@ def find_common_free_slots(
 
 
 def summarize_calendars_for_llm(calendar_data: dict | None = None, *, path: str | Path | None = None) -> str:
-    """Planlayıcı düğümüne bağlam olarak verilecek kısa özet."""
+    """Planlayıcı düğümüne bağlam olarak verilecek kısa özet (n kişi)."""
     data = calendar_data if calendar_data is not None else load_calendars(path)
-    lines = ["Kişiler ve şehirler:"]
-    for key, kisi in data["kisiler"].items():
-        lines.append(f"  - {key}: {kisi['ad']} ({kisi['sehir']})")
+    kisiler = data["kisiler"]
+    lines = [f"Kişiler ve şehirler ({len(kisiler)} katılımcı):"]
+    for i, (key, kisi) in enumerate(kisiler.items(), 1):
+        rol = kisi.get("rol", key)
+        lines.append(f"  {i}. {kisi.get('ad', key)} — {kisi.get('sehir', '?')} ({rol})")
     slots = find_common_free_slots(data)
     lines.append("\nOrtak boş zamanlar (Python hesabı, güvenilir):")
     if not slots:
