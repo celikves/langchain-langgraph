@@ -1,6 +1,7 @@
 import requests
 import random
 from langchain_core.tools import tool
+from langchain_community.tools import DuckDuckGoSearchRun
 
 @tool
 def mesafe_ve_sure_hesapla(kalkis_sehri: str, varis_sehri: str) -> str:
@@ -57,11 +58,16 @@ def hava_durumu_getir(sehir: str, tarih: str) -> str:
         return f"Hava durumu çekilirken hata oluştu: {str(e)}. Ajan inisiyatif kullanmalı."
 
 @tool
-def mekan_bul(sehir: str, butce_durumu: str) -> str:
-    """Bütçe durumuna (düşük, orta, yüksek) göre mekan önerisi yapar."""
-    if butce_durumu.lower() == "yüksek": return f"{sehir} merkezinde lüks restoran ve VIP tur."
-    elif butce_durumu.lower() == "düşük": return f"{sehir} şehrinde tarihi esnaf lokantası ve ücretsiz park gezisi."
-    return f"{sehir} şehrinde popüler bir orta sınıf kafe."
+def internette_mekan_ara(sorgu: str) -> str:
+    """Belirli bir şehirdeki mekanları, restoranları veya etkinlikleri bulmak için internette gerçek zamanlı arama yapar.
+    Arama sorgusunu (örn: 'Bursa düşük bütçeli kapalı mekanlar ve restoranlar') sen belirlemelisin."""
+    try:
+        arama_araci = DuckDuckGoSearchRun()
+        sonuc = arama_araci.invoke(sorgu)
+        # LLM'in okuyabilmesi için dönen metin özetini string olarak iletiyoruz
+        return f"Web Arama Sonuçları: {sonuc}"
+    except Exception as e:
+        return f"Arama sırasında bir hata oluştu: {str(e)}. Lütfen alternatif ve daha kısa bir sorgu dene."
 
-# Diğer dosyada kolayca import edebilmek için araçları bir listede topluyoruz
-agent_tools = [mesafe_ve_sure_hesapla, hava_durumu_getir, mekan_bul]
+# Listeyi yeni aracımızla güncelledik
+agent_tools = [mesafe_ve_sure_hesapla, hava_durumu_getir, internette_mekan_ara]

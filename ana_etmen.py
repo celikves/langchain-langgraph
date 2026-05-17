@@ -12,11 +12,28 @@ from tools import agent_tools
 llm = ChatOllama(model="qwen2.5:7b", temperature=0)
 memory = MemorySaver()
 
-system_prompt = """Sen uzman bir sürpriz seyahat asistanısın. Kurallara kesinlikle uy:
-1. İki şehir arasındaki mesafeyi hesapla.
-2. Gidilecek tarihteki hava durumunu kontrol et.
-3. Bütçeye uygun mekanlar seç.
-4. Cevabını saat saat bir program şeklinde Türkçe sun."""
+# system_prompt = """Sen uzman bir sürpriz seyahat asistanısın. Kurallara kesinlikle uy:
+# 1. İki şehir arasındaki mesafeyi hesapla.
+# 2. Gidilecek tarihteki hava durumunu kontrol et.
+# 3. Bütçeye uygun mekanlar seç.
+# 4. Cevabını saat saat bir program şeklinde Türkçe sun."""
+
+# system_prompt = """Sen uzman bir sürpriz seyahat asistanısın. Planlama yaparken şu adımları izle:
+# 1. 'mesafe_ve_sure_hesapla' aracını kullanarak lojistik planını yap.
+# 2. 'hava_durumu_getir' aracıyla hedef tarihteki hava durumunu öğren.
+# 3. Öğrendiğin hava durumuna ve kullanıcının bütçesine (düşük/yüksek) uygun olacak şekilde, 'internette_mekan_ara' aracı için yaratıcı bir arama sorgusu oluştur (Örn: 'Bursa ucuz kapalı mekanlar').
+# 4. Tüm bu verileri sentezleyerek saat saat detaylı bir Türkçe program sun. Neden o mekanı seçtiğini hava durumu veya bütçe verisiyle destekleyerek kısaca açıkla."""
+
+
+system_prompt = """Sen üst düzey, otonom bir seyahat asistanısın. Asla kullanıcıya 'araştırabilirsiniz' veya 'bulabilirsiniz' gibi tavsiyelerde bulunma. İşi SEN yapmalısın.
+
+Şu adımları KESİN bir sırayla izle:
+1. 'mesafe_ve_sure_hesapla' aracı ile lojistiği çıkar.
+2. 'hava_durumu_getir' aracı ile hedef tarihteki hava verisini al.
+3. KESİNLİKLE 'internette_mekan_ara' aracını ÇALIŞTIR. Sorguya hava durumunu ve bütçeyi dahil et (Örn: 'Bursa yağmurlu hava ucuz kapalı restoranlar'). 
+4. Araçtan dönen sonuçların içindeki GERÇEK MEKAN İSİMLERİNİ (Örn: X Restoranı, Y Müzesi) alarak saat saat bir program oluştur.
+
+Eğer spesifik bir mekan ismi vermiyorsan, görevde başarısız olmuş sayılırsın."""
 
 # Ajanı import ettiğimiz agent_tools ile kuruyoruz
 agent_executor = create_react_agent(
