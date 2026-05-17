@@ -1,35 +1,75 @@
 import requests
-import random
 from langchain_core.tools import tool
 from langchain_community.tools import DuckDuckGoSearchRun
+
+GEOCODING_URL = "https://geocoding-api.open-meteo.com/v1/search"
+OSRM_URL = "https://router.project-osrm.org/route/v1/driving"
+
+
+def _sehir_koordinati_getir(sehir: str) -> tuple[float, float] | None:
+    response = requests.get(
+        GEOCODING_URL,
+        params={"name": sehir, "count": 1, "language": "tr", "format": "json"},
+        timeout=10,
+    ).json()
+    if "results" not in response:
+        return None
+    result = response["results"][0]
+    return result["latitude"], result["longitude"]
+
+
+def _sure_metni(saniye: float) -> str:
+    saat = int(saniye // 3600)
+    dakika = int((saniye % 3600) // 60)
+    if saat and dakika:
+        return f"yaklaşık {saat} saat {dakika} dakika"
+    if saat:
+        return f"yaklaşık {saat} saat"
+    return f"yaklaşık {dakika} dakika"
+
 
 @tool
 def mesafe_ve_sure_hesapla(kalkis_sehri: str, varis_sehri: str) -> str:
     """İki şehir arasındaki seyahat mesafesini ve tahmini varış süresini hesaplar."""
-    mesafeler = {
-        ("İstanbul", "Bursa"): "155 km, yaklaşık 2 saat",
-        ("Ankara", "Bursa"): "385 km, yaklaşık 4.5 saat",
-        ("İzmir", "Bursa"): "345 km, yaklaşık 4 saat"
-    }
-    rota = (kalkis_sehri, varis_sehri)
-    ters_rota = (varis_sehri, kalkis_sehri)
-    
-    if rota in mesafeler: return mesafeler[rota]
-    elif ters_rota in mesafeler: return mesafeler[ters_rota]
-    return f"{kalkis_sehri} ve {varis_sehri} arası mesafe sistemde bulunamadı. Ortalama 300 km ve 3 saat varsayılabilir."
+    try:
+        kalkis = _sehir_koordinati_getir(kalkis_sehri)
+        if kalkis is None:
+            return f"Sistem hatası: '{kalkis_sehri}' koordinatları bulunamadı."
+
+        varis = _sehir_koordinati_getir(varis_sehri)
+        if varis is None:
+            return f"Sistem hatası: '{varis_sehri}' koordinatları bulunamadı."
+
+        k_enlem, k_boylam = kalkis
+        v_enlem, v_boylam = varis
+        osrm_response = requests.get(
+            f"{OSRM_URL}/{k_boylam},{k_enlem};{v_boylam},{v_enlem}",
+            params={"overview": "false"},
+            timeout=15,
+        ).json()
+
+        if osrm_response.get("code") != "Ok" or not osrm_response.get("routes"):
+            return (
+                f"{kalkis_sehri} ile {varis_sehri} arası rota hesaplanamadı. "
+                "Alternatif plan oluştur."
+            )
+
+        rota = osrm_response["routes"][0]
+        km = round(rota["distance"] / 1000)
+        return f"{km} km, {_sure_metni(rota['duration'])}"
+
+    except Exception as e:
+        return f"Mesafe hesaplanırken hata oluştu: {str(e)}. Ajan inisiyatif kullanmalı."
 
 @tool
 def hava_durumu_getir(sehir: str, tarih: str) -> str:
     """Belirtilen şehir ve tarih (YYYY-MM-DD formatında) için hava durumu tahminini getirir."""
     try:
-        geo_url = f"https://geocoding-api.open-meteo.com/v1/search?name={sehir}&count=1&language=tr&format=json"
-        geo_response = requests.get(geo_url).json()
-        
-        if "results" not in geo_response:
+        koordinat = _sehir_koordinati_getir(sehir)
+        if koordinat is None:
             return f"Sistem hatası: '{sehir}' koordinatları bulunamadı. Alternatif plan oluştur."
-            
-        enlem = geo_response["results"][0]["latitude"]
-        boylam = geo_response["results"][0]["longitude"]
+
+        enlem, boylam = koordinat
         
         weather_url = (f"https://api.open-meteo.com/v1/forecast?latitude={enlem}&longitude={boylam}"
                        f"&daily=temperature_2m_max,temperature_2m_min,precipitation_probability_max"
