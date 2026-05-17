@@ -1,9 +1,12 @@
 import json
 import os
+from datetime import datetime
 
 import requests
 from langchain_community.tools.tavily_search import TavilySearchResults
 from langchain_core.tools import tool
+
+from calendar_logic import find_common_free_slots, load_calendars, summarize_calendars_for_llm
 
 GEOCODING_URL = "https://geocoding-api.open-meteo.com/v1/search"
 OSRM_URL = "https://router.project-osrm.org/route/v1/driving"
@@ -140,6 +143,89 @@ def _get_tavily_search() -> TavilySearchResults:
 
 
 @tool
+def ortak_bos_zaman_bul(takvim_dosya_yolu: str = "") -> str:
+    """İki kişinin takvimini karşılaştırıp ortak boş saatleri döndürür (saf Python, halüsinasyonsuz).
+    Boş bırakılırsa varsayılan mock JSON kullanılır."""
+    try:
+        path = takvim_dosya_yolu.strip() or None
+        data = load_calendars(path) if path else load_calendars()
+        slots = find_common_free_slots(data)
+        return json.dumps(
+            {"ortak_bos_zamanlar": slots, "ozet": summarize_calendars_for_llm(data)},
+            ensure_ascii=False,
+            indent=2,
+        )
+    except Exception as e:
+        return f"Takvim okunamadı: {e}"
+
+
+def _rush_hour_multiplier(departure_hour: int) -> float:
+    """İş çıkışı trafiği için basit çarpan (gerçek API yerine geliştirme aşaması)."""
+    if 17 <= departure_hour <= 19:
+        return 1.45
+    if 7 <= departure_hour <= 9:
+        return 1.25
+    return 1.0
+
+
+@tool
+def trafik_ve_mesafe_getir(kalkis_sehir: str, varis_sehir: str, kalkis_saati: str) -> str:
+    """Belirtilen saatte iki şehir arası mesafe ve trafik etkisi dahil tahmini süreyi hesaplar.
+    kalkis_saati: HH:MM veya YYYY-MM-DDTHH:MM formatında."""
+    try:
+        if "T" in kalkis_saati:
+            dt = datetime.fromisoformat(kalkis_saati)
+        else:
+            dt = datetime.strptime(kalkis_saati, "%H:%M").replace(year=2026, month=5, day=22)
+        hour = dt.hour
+
+        raw = calculate_distance_and_duration.invoke(
+            {"origin_city": kalkis_sehir, "destination_city": varis_sehir}
+        )
+        if "km" not in raw:
+            return raw
+
+        multiplier = _rush_hour_multiplier(hour)
+        if multiplier > 1.0:
+            return (
+                f"{raw}. Kalkış saati {dt.strftime('%H:%M')}: yoğun trafik bekleniyor "
+                f"(süreye ~%{int((multiplier - 1) * 100)} ek pay). "
+                f"Terminal/istasyona gitmeden önce bu payı plana dahil et."
+            )
+        return f"{raw}. Kalkış saati {dt.strftime('%H:%M')}: normal trafik koşulları varsayıldı."
+    except Exception as e:
+        return f"Trafik/mesafe hesabı başarısız: {e}"
+
+
+@tool
+def bilet_ara(tarih: str, kalkis: str, varis: str, tercih: str = "otobus") -> str:
+    """Belirtilen güzergahta örnek ulaşım seçenekleri (geliştirme mock'u).
+    Gerçek entegrasyon için Tavily veya taşıyıcı API kullanılabilir."""
+    mock = {
+        "otobus": [
+            {"firma": "Metro Turizm", "kalkis": "18:30", "varis_tahmini": "23:15", "fiyat_tl": 450},
+            {"firma": "Pamukkale", "kalkis": "19:00", "varis_tahmini": "23:45", "fiyat_tl": 420},
+        ],
+        "ucak": [
+            {"firma": "THY", "kalkis": "18:45", "varis_tahmini": "19:40", "fiyat_tl": 1850},
+            {"firma": "Pegasus", "kalkis": "20:10", "varis_tahmini": "21:05", "fiyat_tl": 1200},
+        ],
+    }
+    secenekler = mock.get(tercih.lower(), mock["otobus"])
+    return json.dumps(
+        {
+            "tarih": tarih,
+            "guzergah": f"{kalkis} → {varis}",
+            "tercih": tercih,
+            "not": "Mock veri — üretimde gerçek API bağlanmalı.",
+            "secenekler": secenekler,
+        },
+        ensure_ascii=False,
+        indent=2,
+    )
+
+
+@tool
 def search_places_online(query: str) -> str:
     """Belirli bir şehirdeki mekanları, restoranları veya etkinlikleri bulmak için internette gerçek zamanlı arama yapar.
     Arama sorgusunu (örn: 'Bursa düşük bütçeli kapalı mekanlar ve restoranlar') sen belirlemelisin."""
@@ -155,4 +241,20 @@ def search_places_online(query: str) -> str:
         return f"Arama sırasında bir hata oluştu: {str(e)}. Lütfen alternatif ve daha kısa bir sorgu dene."
 
 
-agent_tools = [calculate_distance_and_duration, get_weather_forecast, search_places_online]
+surprise_visit_tools = [
+    ortak_bos_zaman_bul,
+    trafik_ve_mesafe_getir,
+    bilet_ara,
+    calculate_distance_and_duration,
+    get_weather_forecast,
+    search_places_online,
+]
+
+agent_tools = [
+    ortak_bos_zaman_bul,
+    trafik_ve_mesafe_getir,
+    bilet_ara,
+    calculate_distance_and_duration,
+    get_weather_forecast,
+    search_places_online,
+]

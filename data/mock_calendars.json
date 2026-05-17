@@ -1,0 +1,26 @@
+{
+  "meta": {
+    "aciklama": "İki arkadaş: Akhisar (mesaide) + Ankara → Antalya hafta sonu buluşması",
+    "hedef_sehir": "Antalya",
+    "gunler": ["2026-05-22", "2026-05-23", "2026-05-24"],
+    "gun_baslangic": "08:00",
+    "gun_bitis": "23:00",
+    "minimum_bos_dakika": 120
+  },
+  "kisiler": {
+    "kisi_1": {
+      "ad": "Sen (Akhisar, mesaide)",
+      "sehir": "Akhisar",
+      "rol": "calisan",
+      "etkinlikler": [
+        {"tarih": "2026-05-22", "baslangic": "08:00", "bitis": "17:00", "baslik": "Mesai"}
+      ]
+    },
+    "kisi_2": {
+      "ad": "Arkadaşın (Ankara)",
+      "sehir": "Ankara",
+      "rol": "arkadas",
+      "etkinlikler": []
+    }
+  }
+}

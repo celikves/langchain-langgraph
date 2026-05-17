@@ -1,29 +1,23 @@
 import os
+
 from dotenv import load_dotenv
 
 load_dotenv()
 
 from langchain_ollama import ChatOllama
-from langgraph.prebuilt import create_react_agent
 from langgraph.checkpoint.memory import MemorySaver
+from langgraph.prebuilt import create_react_agent
+
+from prompts import SCENARIO_DEFAULTS, build_prompt_template
 from tools import agent_tools
 
 # ==========================================
-# MAIN AGENT SETUP
+# ANA ETMEN VE MİMARİ KURULUMU
 # ==========================================
 
 llm = ChatOllama(model="qwen2.5:7b", temperature=0)
 memory = MemorySaver()
-
-system_prompt = """Sen üst düzey, otonom bir seyahat asistanısın. Asla kullanıcıya 'araştırabilirsiniz' veya 'bulabilirsiniz' gibi tavsiyelerde bulunma. İşi SEN yapmalısın.
-
-Şu adımları KESİN bir sırayla izle:
-1. 'calculate_distance_and_duration' aracı ile lojistiği çıkar.
-2. 'get_weather_forecast' aracı ile hedef tarihteki hava verisini al.
-3. KESİNLİKLE 'search_places_online' aracını ÇALIŞTIR. Sorguya hava durumunu ve bütçeyi dahil et (Örn: 'Bursa yağmurlu hava ucuz kapalı restoranlar').
-4. Araçtan dönen sonuçların içindeki GERÇEK MEKAN İSİMLERİNİ (Örn: X Restoranı, Y Müzesi) alarak saat saat bir program oluştur.
-
-Eğer spesifik bir mekan ismi vermiyorsan, görevde başarısız olmuş sayılırsın."""
+prompt_template = build_prompt_template()
 
 agent_executor = create_react_agent(
     llm,
@@ -32,45 +26,48 @@ agent_executor = create_react_agent(
 )
 
 # ==========================================
-# MAIN FLOW AND TEST
+# ANA AKIŞ VE HAFIZA TESTİ
 # ==========================================
 
 if __name__ == "__main__":
     print("\n[!] Akıllı Seyahat Ajanı Başlatılıyor... (LangSmith İzlemesi Aktif)\n")
-    config = {"configurable": {"thread_id": "travel_project_v4"}}
+    config = {"configurable": {"thread_id": "travel_project_v6"}}
 
     user_query_1 = (
-        "Hafta sonu arkadaşımla buluşacağım. Ben İstanbul'dan, o ise İzmir'den gelecek ve "
-        "ortak nokta olarak Bursa'da buluşmaya karar verdik. Bütçemiz 'düşük'. "
-        "23 Mayıs 2026 tarihi için bize hava durumuna da uygun sabahtan akşama bir plan yapar mısın?"
+        "Ben Manisa Akhisar'dan, en yakın arkadaşım Ankara'dan yola çıkacak. "
+        "İkimiz de kızız; uzun zamandır görüşemediğimiz için bu hafta sonu Antalya'da buluşmak istiyoruz. "
+        "Benim cuma günü saat 17:00'ye kadar mesaim var, arkadaşımın cuma günü boş. "
+        "Cuma akşamı yola çıkacak şekilde, Antalya'daki hava durumuna uygun, "
+        "cumartesi ve pazarı kapsayan detaylı bir plan hazırlar mısın? Bütçemiz orta."
     )
 
     print(f"1. İSTEK: {user_query_1}\n" + "-" * 50)
 
-    response_1 = agent_executor.invoke(
-        {
-            "messages": [
-                ("system", system_prompt),
-                ("user", user_query_1),
-            ]
-        },
-        config,
+    messages_1 = prompt_template.format_messages(
+        messages=[("user", user_query_1)],
+        **SCENARIO_DEFAULTS,
     )
+
+    response_1 = agent_executor.invoke({"messages": messages_1}, config)
 
     print("\n=== NİHAİ PLAN ===\n" + response_1["messages"][-1].content)
 
     print("\n" + "=" * 70 + "\n")
 
-    user_query_2 = "Peki bu plana akşam yemeği için bir de tatlıcı ekler misin?"
+    user_query_2 = (
+        "Plan harika ama cumartesi akşam yemeğinden sonra deniz manzaralı, "
+        "sakin bir tatlıcı veya kafe ekleyelim; arkadaşımla sohbet edip geç saate kadar "
+        "vakit geçirmek istiyoruz. Saatleri buna göre günceller misin?"
+    )
+
     print(f"2. İSTEK (HAFIZA TESTİ): {user_query_2}\n" + "-" * 50)
 
     response_2 = agent_executor.invoke(
-        {
-            "messages": [
-                ("user", user_query_2),
-            ]
-        },
+        {"messages": [("user", user_query_2)]},
         config,
     )
 
     print("\n=== GÜNCELLENMİŞ PLAN ===\n" + response_2["messages"][-1].content)
+
+    if os.getenv("LANGSMITH_TRACING"):
+        print("\n(i) LangSmith izleme aktif.")
