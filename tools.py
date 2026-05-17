@@ -1,6 +1,9 @@
+import json
+import os
+
 import requests
+from langchain_community.tools.tavily_search import TavilySearchResults
 from langchain_core.tools import tool
-from langchain_community.tools import DuckDuckGoSearchRun
 
 GEOCODING_URL = "https://geocoding-api.open-meteo.com/v1/search"
 OSRM_URL = "https://router.project-osrm.org/route/v1/driving"
@@ -106,14 +109,48 @@ def get_weather_forecast(city: str, date: str) -> str:
         return f"Hava durumu çekilirken hata oluştu: {str(e)}. Ajan inisiyatif kullanmalı."
 
 
+def _format_tavily_results(results) -> str:
+    if isinstance(results, str):
+        try:
+            results = json.loads(results)
+        except json.JSONDecodeError:
+            return results
+    if not results:
+        return "Sonuç bulunamadı."
+    lines = []
+    for i, item in enumerate(results, 1):
+        if isinstance(item, dict):
+            title = item.get("title", "Başlıksız")
+            content = item.get("content", item.get("snippet", ""))
+            url = item.get("url", "")
+            lines.append(f"{i}. {title}\n   {content}\n   Kaynak: {url}")
+        else:
+            lines.append(f"{i}. {item}")
+    return "\n\n".join(lines)
+
+
+_tavily_search: TavilySearchResults | None = None
+
+
+def _get_tavily_search() -> TavilySearchResults:
+    global _tavily_search
+    if _tavily_search is None:
+        _tavily_search = TavilySearchResults(max_results=3)
+    return _tavily_search
+
+
 @tool
 def search_places_online(query: str) -> str:
     """Belirli bir şehirdeki mekanları, restoranları veya etkinlikleri bulmak için internette gerçek zamanlı arama yapar.
     Arama sorgusunu (örn: 'Bursa düşük bütçeli kapalı mekanlar ve restoranlar') sen belirlemelisin."""
+    if not os.getenv("TAVILY_API_KEY"):
+        return (
+            "TAVILY_API_KEY ortam değişkeni tanımlı değil. "
+            "tavily.com üzerinden ücretsiz API anahtarı alıp .env dosyasına ekleyin."
+        )
     try:
-        search_tool = DuckDuckGoSearchRun()
-        result = search_tool.invoke(query)
-        return f"Web Arama Sonuçları: {result}"
+        result = _get_tavily_search().invoke(query)
+        return f"Web Arama Sonuçları (Tavily):\n{_format_tavily_results(result)}"
     except Exception as e:
         return f"Arama sırasında bir hata oluştu: {str(e)}. Lütfen alternatif ve daha kısa bir sorgu dene."
 

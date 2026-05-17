@@ -1,0 +1,6 @@
+langchain-community
+langchain-ollama
+langgraph
+python-dotenv
+requests
+tavily-python

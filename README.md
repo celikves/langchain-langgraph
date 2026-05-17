@@ -42,11 +42,33 @@ curl -fsSL [https://ollama.com/install.sh](https://ollama.com/install.sh) | sh
 
 ### 3. Gerekli Kütüphanelerin Kurulumu
 
-Sanal ortamınız aktifken (satır başında `(.venv)` yazarken), projenin ihtiyaç duyduğu LangChain ve web arama araçlarını yüklemek için aşağıdaki komutu çalıştırın:
+Sanal ortamınız aktifken (satır başında `(.venv)` yazarken), bağımlılıkları yükleyin:
 
 ```bash
-pip install langchain-community duckduckgo-search
+pip install -r requirements.txt
+```
 
+### 4. Tavily Web Arama API'si (Mekan Araması)
+
+Mekan ve restoran aramaları [Tavily](https://tavily.com/) üzerinden yapılır. Ücretsiz katman ayda 1.000 kredi sunar; kredi kartı gerekmez.
+
+1. [tavily.com](https://tavily.com/) adresinden e-posta ile kayıt olun.
+2. Dashboard'dan API anahtarınızı kopyalayın (`tvly-...` ile başlar).
+3. Proje kökündeki `.env` dosyasına ekleyin:
+
+```text
+TAVILY_API_KEY=tvly-senin-anahtarin
+```
+
+Her temel arama 1 kredi harcar. Limit dolduğunda API yanıt vermez; ücretlendirme olmaz, krediler ay başında yenilenir.
+
+### 5. Projeyi Çalıştırma
+
+Ollama arka planda çalışırken ve `qwen2.5:7b` modeli indirilmişken:
+
+```bash
+ollama pull qwen2.5:7b
+python main_agent.py
 ```
 
 ### LangSmith İzleme (Tracing) Entegrasyonu
@@ -72,11 +94,11 @@ pip install python-dotenv
 Proje klasörünün ana dizininde (etmentabanlı klasörü içinde) uzantısı olmayan `.env` adında gizli bir dosya oluştur ve içine şu bilgileri yaz (API anahtarını kendi aldığın anahtarla değiştir):
 
 ```text
+TAVILY_API_KEY=tvly-your-api-key
 
 LANGSMITH_TRACING=true
 LANGSMITH_ENDPOINT=https://eu.api.smith.langchain.com
 LANGSMITH_API_KEY="lsv2_your-api-key"
 LANGSMITH_PROJECT="ETGY Langchain"
 GEMINI_API_KEY="your-api-key"
-
 ```
