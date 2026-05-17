@@ -2,6 +2,7 @@ from langchain_core.tools import tool
 import random
 from langchain_ollama import ChatOllama
 from langgraph.prebuilt import create_react_agent
+from langgraph.checkpoint.memory import MemorySaver
 
 # ==========================================
 # 1. BÖLÜM: ARAÇLAR (TOOLS)
@@ -37,15 +38,15 @@ def mekan_bul(sehir: str, butce_durumu: str) -> str:
     return f"{sehir} şehrinde popüler bir orta sınıf kafe."
 
 tools = [mesafe_ve_sure_hesapla, hava_durumu_getir, mekan_bul]
+
 # ==========================================
 # 2. BÖLÜM: BEYİN (MODERN LANGGRAPH MİMARİSİ)
 # ==========================================
 
-# LLM Bağlantısı
 llm = ChatOllama(model="qwen2.5:7b", temperature=0)
 
-# Ajanı sadece LLM ve araçlarla, ekstra parametre olmadan (en sade haliyle) kuruyoruz
-agent_executor = create_react_agent(llm, tools)
+# Hafıza yönetimini sağlayan nesne
+memory = MemorySaver()
 
 system_prompt = """Sen uzman bir sürpriz seyahat asistanısın. Kurallara kesinlikle uy:
 1. İki şehir arasındaki mesafeyi hesapla.
@@ -53,27 +54,54 @@ system_prompt = """Sen uzman bir sürpriz seyahat asistanısın. Kurallara kesin
 3. Bütçeye uygun mekanlar seç.
 4. Cevabını saat saat bir program şeklinde Türkçe sun."""
 
+# ÇÖZÜM: state_modifier parametresini kaldırdık. 
+# Ajanı sadece çekirdek bileşenleri (LLM, araçlar ve hafıza) ile kuruyoruz.
+agent_executor = create_react_agent(
+    llm, 
+    tools, 
+    checkpointer=memory
+)
+
 # ==========================================
-# 3. BÖLÜM: ANA AKIŞ
+# 3. BÖLÜM: ANA AKIŞ VE HAFIZA TESTİ
 # ==========================================
 
 if __name__ == "__main__":
     print("\n[!] Akıllı Seyahat Ajanı Başlatılıyor...\n")
-    kullanici_sorusu = (
+    
+    config = {"configurable": {"thread_id": "seyahat_projesi_1"}}
+    
+    # --- 1. ADIM: İLK PLANIN OLUŞTURULMASI ---
+    kullanici_sorusu_1 = (
         "Hafta sonu arkadaşımla buluşacağım. Ben İstanbul'dan, o ise İzmir'den gelecek ve "
         "ortak nokta olarak Bursa'da buluşmaya karar verdik. Bütçemiz 'düşük'. "
         "23 Mayıs 2026 tarihi için bize hava durumuna da uygun sabahtan akşama bir plan yapar mısın?"
     )
     
-    print(f"Kullanıcı İstegi: {kullanici_sorusu}\n" + "-"*50)
+    print(f"1. İSTEK: {kullanici_sorusu_1}\n" + "-"*50)
     
-    # LangGraph state mimarisine hem sistem kurallarını hem de kullanıcı sorusunu gönderiyoruz
-    yanit = agent_executor.invoke({
+    # ÇÖZÜM: Sistem komutunu (system_prompt) grafın başlangıç durumuna (state) manuel olarak ekliyoruz.
+    yanit_1 = agent_executor.invoke({
         "messages": [
             ("system", system_prompt),
-            ("user", kullanici_sorusu)
+            ("user", kullanici_sorusu_1)
         ]
-    })
+    }, config)
     
-    # Sonuç state içindeki en son mesajın içeriğinden alınır
-    print("\n=== NİHAİ PLAN ===\n" + yanit["messages"][-1].content)
+    print("\n=== NİHAİ PLAN ===\n" + yanit_1["messages"][-1].content)
+    
+    print("\n" + "="*70 + "\n")
+    
+    # --- 2. ADIM: BAĞLAM (CONTEXT) VE HAFIZA TESTİ ---
+    kullanici_sorusu_2 = "Peki bu plana akşam yemeği için bir de tatlıcı ekler misin?"
+    
+    print(f"2. İSTEK (HAFIZA TESTİ): {kullanici_sorusu_2}\n" + "-"*50)
+    
+    # İkinci soruda tekrar system_prompt göndermemize gerek yok, hafıza onu da hatırlayacaktır.
+    yanit_2 = agent_executor.invoke({
+        "messages": [
+            ("user", kullanici_sorusu_2)
+        ]
+    }, config)
+    
+    print("\n=== GÜNCELLENMİŞ PLAN ===\n" + yanit_2["messages"][-1].content)
