@@ -1,6 +1,7 @@
 langchain-community
 langchain-ollama
 langgraph
+openai
 python-dotenv
 requests
 tavily-python

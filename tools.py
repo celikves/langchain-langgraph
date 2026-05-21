@@ -1,12 +1,16 @@
 import json
+import logging
 import os
-from datetime import datetime
+import re
+from datetime import datetime, timedelta
 
 import requests
 from langchain_community.tools.tavily_search import TavilySearchResults
 from langchain_core.tools import tool
 
 from calendar_logic import find_common_free_slots, load_calendars, summarize_calendars_for_llm
+
+logger = logging.getLogger(__name__)
 
 GEOCODING_URL = "https://geocoding-api.open-meteo.com/v1/search"
 OSRM_URL = "https://router.project-osrm.org/route/v1/driving"
@@ -197,32 +201,144 @@ def trafik_ve_mesafe_getir(kalkis_sehir: str, varis_sehir: str, kalkis_saati: st
         return f"Trafik/mesafe hesabı başarısız: {e}"
 
 
+def _parse_rota_suresi_dakika(rota_metni: str) -> int:
+    """'350 km, yaklaşık 4 saat 30 dakika' gibi metinden süreyi çıkarır."""
+    hours = 0
+    minutes = 0
+    if m := re.search(r"(\d+)\s*saat", rota_metni):
+        hours = int(m.group(1))
+    if m := re.search(r"(\d+)\s*dakika", rota_metni):
+        minutes = int(m.group(1))
+    total = hours * 60 + minutes
+    return total if total > 0 else 180
+
+
+def _saat_ekle(kalkis_hhmm: str, dakika: int) -> str:
+    base = datetime.strptime(kalkis_hhmm, "%H:%M")
+    return (base + timedelta(minutes=dakika)).strftime("%H:%M")
+
+
+def _fallback_bilet_secenekleri(tercih: str, rota_ozeti: str, sure_dk: int) -> list[dict]:
+    """OpenAI yoksa veya hata olursa rota süresine göre 2 seçenek üretir."""
+    if tercih.lower() == "ucak":
+        firmalar = [("THY", 1650), ("Pegasus", 1180)]
+        kalkislar = ["17:30", "19:00"]
+        sure_dk = min(sure_dk, 120)
+    else:
+        firmalar = [("Metro Turizm", 480), ("Pamukkale Turizm", 430)]
+        kalkislar = ["18:00", "19:30"]
+
+    secenekler = []
+    for (firma, fiyat), kalkis in zip(firmalar, kalkislar):
+        secenekler.append(
+            {
+                "firma": firma,
+                "kalkis": kalkis,
+                "varis_tahmini": _saat_ekle(kalkis, sure_dk),
+                "sure": f"{sure_dk // 60}s {sure_dk % 60}dk" if sure_dk >= 60 else f"{sure_dk}dk",
+                "fiyat_tl": fiyat,
+            }
+        )
+    return secenekler
+
+
+def _openai_bilet_secenekleri(
+    tarih: str,
+    kalkis: str,
+    varis: str,
+    tercih: str,
+    rota_ozeti: str,
+    sure_dk: int,
+) -> list[dict] | None:
+    api_key = os.getenv("OPENAI_API_KEY")
+    if not api_key:
+        logger.warning("bilet_ara: OPENAI_API_KEY tanımlı değil, yedek seçenekler kullanılacak")
+        return None
+
+    try:
+        from openai import OpenAI
+    except ImportError:
+        logger.exception("bilet_ara: openai paketi yüklü değil (pip install openai)")
+        return None
+
+    prompt = (
+        f"Tarih: {tarih}\nGüzergah: {kalkis} → {varis}\nUlaşım: {tercih}\n"
+        f"Rota: {rota_ozeti}\nTahmini yolculuk: {sure_dk} dakika.\n\n"
+        "Tam 2 gerçekçi Türkiye seferi üret. Kalkış ve varış saatleri yolculuk süresine uysun "
+        "(varis = kalkis + süre). Akşam/öğleden sonra kalkışları tercih et. "
+        'JSON: {"secenekler":[{"firma","kalkis","varis_tahmini","sure","fiyat_tl"}, ...]} '
+        "Sadece 2 öğe, sadece JSON."
+    )
+
+    try:
+        client = OpenAI(api_key=api_key)
+        response = client.chat.completions.create(
+            model=os.getenv("OPENAI_BILET_MODEL", "gpt-4o-mini"),
+            temperature=0.2,
+            response_format={"type": "json_object"},
+            messages=[
+                {
+                    "role": "system",
+                    "content": "Seyahat planlama asistanısın. Kısa, tutarlı saatler ve makul TL fiyatları ver.",
+                },
+                {"role": "user", "content": prompt},
+            ],
+        )
+        raw = response.choices[0].message.content or ""
+        logger.info("bilet_ara: OpenAI yanıtı alındı (%s karakter)", len(raw))
+        data = json.loads(raw)
+        secenekler = data.get("secenekler", data if isinstance(data, list) else [])
+        if not isinstance(secenekler, list) or len(secenekler) < 1:
+            logger.warning("bilet_ara: OpenAI JSON'da secenekler yok: %s", raw[:200])
+            return None
+        return secenekler[:2]
+    except Exception:
+        logger.exception("bilet_ara: OpenAI çağrısı başarısız")
+        return None
+
+
 @tool
 def bilet_ara(tarih: str, kalkis: str, varis: str, tercih: str = "otobus") -> str:
-    """Belirtilen güzergahta örnek ulaşım seçenekleri (geliştirme mock'u).
-    Gerçek entegrasyon için Tavily veya taşıyıcı API kullanılabilir."""
-    mock = {
-        "otobus": [
-            {"firma": "Metro Turizm", "kalkis": "18:30", "varis_tahmini": "23:15", "fiyat_tl": 450},
-            {"firma": "Pamukkale", "kalkis": "19:00", "varis_tahmini": "23:45", "fiyat_tl": 420},
-        ],
-        "ucak": [
-            {"firma": "THY", "kalkis": "18:45", "varis_tahmini": "19:40", "fiyat_tl": 1850},
-            {"firma": "Pegasus", "kalkis": "20:10", "varis_tahmini": "21:05", "fiyat_tl": 1200},
-        ],
-    }
-    secenekler = mock.get(tercih.lower(), mock["otobus"])
-    return json.dumps(
-        {
-            "tarih": tarih,
-            "guzergah": f"{kalkis} → {varis}",
-            "tercih": tercih,
-            "not": "Mock veri — üretimde gerçek API bağlanmalı.",
-            "secenekler": secenekler,
-        },
-        ensure_ascii=False,
-        indent=2,
+    """Güzergahta 2 ulaşım seçeneği döndürür; saatler rota süresine göre OpenAI ile üretilir."""
+    tercih_norm = (tercih or "otobus").strip().lower()
+    logger.info(
+        "bilet_ara çağrıldı: tarih=%s kalkis=%s varis=%s tercih=%s",
+        tarih,
+        kalkis,
+        varis,
+        tercih_norm,
     )
+
+    try:
+        rota_ozeti = calculate_distance_and_duration.invoke(
+            {"origin_city": kalkis, "destination_city": varis}
+        )
+        logger.info("bilet_ara: rota_ozeti=%s", rota_ozeti)
+    except Exception:
+        logger.exception("bilet_ara: mesafe/süre hesabı başarısız")
+        rota_ozeti = f"{kalkis} → {varis} (rota hesaplanamadı)"
+
+    sure_dk = _parse_rota_suresi_dakika(rota_ozeti) if "km" in rota_ozeti else 180
+    if tercih_norm == "ucak":
+        sure_dk = min(sure_dk, 120)
+
+    secenekler = _openai_bilet_secenekleri(tarih, kalkis, varis, tercih_norm, rota_ozeti, sure_dk)
+    kaynak = "openai"
+    if not secenekler:
+        secenekler = _fallback_bilet_secenekleri(tercih_norm, rota_ozeti, sure_dk)
+        kaynak = "hesaplanan_yedek"
+        logger.info("bilet_ara: yedek seçenekler kullanıldı (2 adet)")
+
+    payload = {
+        "tarih": tarih,
+        "guzergah": f"{kalkis} → {varis}",
+        "tercih": tercih_norm,
+        "rota_ozeti": rota_ozeti,
+        "kaynak": kaynak,
+        "secenekler": secenekler,
+    }
+    logger.info("bilet_ara: tamamlandı kaynak=%s", kaynak)
+    return json.dumps(payload, ensure_ascii=False, indent=2)
 
 
 @tool
