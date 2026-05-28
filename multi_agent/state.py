@@ -15,13 +15,14 @@ class SeyahatState(TypedDict):
     # --- DİNAMİK BAĞLAM (Dışarıdan Beslenecek) ---
     kullanici_profilleri: List[Dict[str, Any]] # 2, 3 veya N adet kullanıcının JSON profili
     ortak_kisitlamalar: str                    # Örn: "Cuma 17:00 mesai bitişi"
+    hedef_tarih: str                           # Örn: "2026-06-04"
     
     # --- AJANLARIN ÇALIŞMA ALANLARI ---
     # Lojistik Ajanı rotaları hesaplayıp buraya yazar
-    lojistik_verisi: str
+    lojistik_verisi: Dict[str, Any]
     
     # Keşif Ajanı hava durumunu ve mekanları bulup buraya yazar
-    kesif_verisi: str
+    kesif_verisi: Dict[str, Any]
     
     # Planlayıcı Ajan nihai taslağı oluşturup buraya yazar
     nihai_plan: str
@@ -29,3 +30,4 @@ class SeyahatState(TypedDict):
     # --- ORKESTRASYON VE KONTROL ---
     hata_mesaji: str       # Reviewer bir kısıt ihlali bulursa hatayı buraya yazar
     siradaki_ajan: str     # Supervisor'ın yönlendirmeyi yapacağı değişken
+    revizyon_sayisi: int   # Reviewer reddederse planlayıcı kaçıncı revizyonda takip edilir

@@ -1,4 +1,6 @@
 import os
+import json
+import ast
 import requests
 from langchain_core.tools import tool
 
@@ -82,6 +84,11 @@ def hava_durumu_getir(sehir: str, tarih: str) -> str:
         return f"Hava durumu çekilemedi. Hata: {str(e)}"
 
 _tavily_araci = None
+_fallback_mekanlar = [
+    {"ad": "7 Mehmet", "kaynak": "fallback", "butce_notu": "orta-ust"},
+    {"ad": "Sıralı Kebap", "kaynak": "fallback", "butce_notu": "orta"},
+    {"ad": "Falezler Seyir Terası", "kaynak": "fallback", "butce_notu": "dusuk"},
+]
 
 
 def _tavily_aracini_getir():
@@ -106,6 +113,37 @@ def _tavily_aracini_getir():
     return None
 
 
+def _mekan_jsonu_uret(raw_result, *, uyari: str = "") -> str:
+    mekanlar = []
+    parsed = raw_result
+    if isinstance(parsed, str):
+        stripped = parsed.strip()
+        try:
+            parsed = json.loads(stripped)
+        except json.JSONDecodeError:
+            try:
+                parsed = ast.literal_eval(stripped)
+            except (ValueError, SyntaxError):
+                parsed = []
+
+    if isinstance(parsed, dict):
+        adaylar = parsed.get("results") or parsed.get("data") or []
+    elif isinstance(parsed, list):
+        adaylar = parsed
+    else:
+        adaylar = []
+
+    for item in adaylar:
+        if not isinstance(item, dict):
+            continue
+        ad = (item.get("title") or item.get("name") or "").strip()
+        kaynak = (item.get("url") or "").strip()
+        if ad:
+            mekanlar.append({"ad": ad, "kaynak": kaynak, "butce_notu": "belirsiz"})
+
+    return json.dumps({"mekanlar": mekanlar, "uyari": uyari}, ensure_ascii=False)
+
+
 @tool
 def internette_mekan_ara(sorgu: str) -> str:
     """
@@ -114,16 +152,35 @@ def internette_mekan_ara(sorgu: str) -> str:
     """
     tavily_araci = _tavily_aracini_getir()
     if tavily_araci is None:
-        return (
-            "Tavily araması kullanılamıyor. Lütfen ortam değişkeni olarak TAVILY_API_KEY tanımlayın "
-            "ve gerekirse 'langchain-tavily' paketini kurun."
+        return json.dumps(
+            {
+                "mekanlar": _fallback_mekanlar,
+                "uyari": "Tavily kullanılamadı; fallback mekan listesi kullanıldı.",
+            },
+            ensure_ascii=False,
         )
 
     try:
         sonuc = tavily_araci.invoke({"query": sorgu})
-        return str(sonuc)
+        mekan_json = _mekan_jsonu_uret(sonuc)
+        parsed = json.loads(mekan_json)
+        if parsed.get("mekanlar"):
+            return mekan_json
+        return json.dumps(
+            {
+                "mekanlar": _fallback_mekanlar,
+                "uyari": "Web aramasından mekan adı çıkarılamadı; fallback mekan listesi kullanıldı.",
+            },
+            ensure_ascii=False,
+        )
     except Exception as e:
-        return f"İnternet araması sırasında hata oluştu: {str(e)}"
+        return json.dumps(
+            {
+                "mekanlar": _fallback_mekanlar,
+                "uyari": f"İnternet aramasında hata oluştu ({str(e)}); fallback mekan listesi kullanıldı.",
+            },
+            ensure_ascii=False,
+        )
 
 # ==========================================
 # 3. DIŞA AKTARMA (EXPORTS)
