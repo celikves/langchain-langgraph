@@ -64,9 +64,11 @@ _BASKA_SEHIRLER = (
 _KAYNAK_SONEK = re.compile(
     r"\s*[-–|]\s*"
     r"(tripadvisor|vikipedi|wikipedia|google\s*maps|apple\s*maps|facebook|instagram|"
-    r"yelp|foursquare|beldibi\s*[-–]?\s*tripadvisor|fast\s*food\.?)\s*$",
+    r"yelp|foursquare|yandex|oregano|2gis|zomato|"
+    r"beldibi\s*[-–]?\s*tripadvisor|fast\s*food\.?)\s*$",
     re.I,
 )
+_KIRLI_PLATFORM = re.compile(r"(?i)\b(yandex|oregano|2gis|zomato)\b")
 _OTEL_LISTE_KALIPI = re.compile(
     r"(?i)(\bhotels?\b|\bhotel\b|\bAKKA\b|\bresort\b|\baccommodation\b)"
 )
@@ -136,6 +138,8 @@ def gecerli_mekan_adi(ad: str) -> bool:
     ):
         return False
     if _GENERIC_PATTERNS.search(ad):
+        return False
+    if _KIRLI_PLATFORM.search(ad):
         return False
     if ad.count(",") >= 2:
         return False

@@ -21,6 +21,22 @@ AktiviteTur = Literal["plaj", "yemek", "gezi", "muzik"]
 
 MAX_MEKAN_ARAMA_BASINA = 3
 _PLAJ_ADI_SABIT = "Plaj/yüzme"
+_RESTORAN_KALIPI = re.compile(
+    r"(?i)(restaurant|restoran|kebap|balıkçı|balikci|lokanta|cafe|kafe|bistro|balik)"
+)
+_TARIH_MEKAN_KALIPI = re.compile(
+    r"(?i)(müze|muze|kale|antik|anıt|anit|parkı|parki|köprü|koprü|cami|saray|harabe|kültür|kultur)"
+)
+
+
+def _gezi_mekan_kabul(mekan_ad: str) -> bool:
+    """Gezi türünde salt restoran adlarını ele; tarihi/müze adayları kalsın."""
+    ad = (mekan_ad or "").strip()
+    if not ad:
+        return False
+    if _RESTORAN_KALIPI.search(ad) and not _TARIH_MEKAN_KALIPI.search(ad):
+        return False
+    return True
 
 
 _TR_LOWER = str.maketrans("İIĞÜŞÖÇ", "iığüşöç")
@@ -228,6 +244,8 @@ def kesif_tur_calistir(
         else:
             for m in bulunan:
                 mekan_ad = (m.get("ad") or "").strip()
+                if tur == "gezi" and not _gezi_mekan_kabul(mekan_ad):
+                    continue
                 _aktivite_ekle(
                     aktiviteler,
                     aktivite_seen,

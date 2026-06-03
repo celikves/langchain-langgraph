@@ -1,6 +1,7 @@
 import os
 import json
 import re
+from datetime import datetime
 
 from langchain_core.messages import HumanMessage, SystemMessage
 from langchain_core.runnables import RunnableConfig
@@ -181,6 +182,17 @@ def planlayici_node(state: SeyahatState, config: RunnableConfig):
     if not aktiviteler and not mekan_adlari:
         return _halt_payload("Planlayıcı: keşif verisinde aktivite/mekan yok.")
 
+    from multi_agent.plan_builder import deterministik_plan_olustur
+
+    if revizyon_sayisi == 0 and not (hata_mesaji or "").strip():
+        try:
+            plan = deterministik_plan_olustur(state)
+            if plan and "**Keşif:**" in plan:
+                print("  ✓ Deterministik plan (iskelet + slot yerleştirme)")
+                return {"nihai_plan": plan, "son_dugum": "planlayici"}
+        except Exception as e:
+            print(f"  (i) Deterministik plan atlandı, LLM yedeği: {e}")
+
     aktivite_ozet = [
         {
             "tur": a.get("tur"),
@@ -195,9 +207,18 @@ def planlayici_node(state: SeyahatState, config: RunnableConfig):
     izinli_adlar = [a.get("ad", "") for a in aktiviteler if a.get("ad")]
     tercih_ozeti = kesif_verisi.get("tercih_ozeti") or []
 
+    iskelet = ""
+    try:
+        iskelet = deterministik_plan_olustur(state)
+    except Exception:
+        pass
+
     planlayici_prompt = f"""Sen Baş Planlayıcı Ajansın.
 Aşağıdaki lojistik ve keşif verilerini kullanarak saat saat yapılandırılmış bir sürpriz hafta sonu planı oluştur.
 Asla veri uydurma.
+
+--- Deterministik iskelet (Lojistik satırlarını AYNEN koru; yalnızca Keşif satırlarını düzelt) ---
+{iskelet or "(iskelet üretilemedi)"}
 
 --- Katılımcılar (yapılandırılmış) ---
 {json.dumps(state.get('katilimci_bilgileri', []), ensure_ascii=False)}
@@ -409,6 +430,51 @@ def reviewer_node(state: SeyahatState, config: RunnableConfig):
             'RED: Plan koşullu ifade içeriyor ("eğer/olursa/muhtemelen" yasak).',
             kontrol="kosullu_ifade",
         )
+
+    pencere = state.get("ortak_bulusma_penceresi") or {}
+    erken = pencere.get("erken_gelen_aksiyonlari") or []
+    if erken:
+        plan_lower = nihai_plan.lower()
+        if not any((a.get("isim") or "").lower() in plan_lower for a in erken):
+            return _reject(
+                "RED: Erken gelen katılımcılar için otel bekleme lojistik satırı planda yok.",
+                kontrol="erken_gelen",
+            )
+
+    gece_bas = (pencere.get("gece_otel_baslangic_saat_metin") or "").strip()
+    gece_bit = (pencere.get("gece_otel_bitis_saat_metin") or "").strip()
+    if gece_bas and gece_bit and f"{gece_bas}-{gece_bit}" not in nihai_plan:
+        if gece_bas not in nihai_plan or "otel" not in nihai_plan.lower():
+            return _reject(
+                f"RED: Gece otel dinlenme penceresi ({gece_bas}–{gece_bit}) planda eksik.",
+                kontrol="gece_otel",
+            )
+
+    slots = state.get("ortak_bos_zamanlar") or []
+    donus_slot = next(
+        (
+            s
+            for s in reversed(slots)
+            if datetime.fromisoformat(s["baslangic"]).weekday() == 6
+            and datetime.fromisoformat(s["baslangic"]).hour >= 20
+        ),
+        None,
+    )
+    if donus_slot:
+        donus_aralik = (
+            f"{datetime.fromisoformat(donus_slot['baslangic']).strftime('%H:%M')}-"
+            f"{datetime.fromisoformat(donus_slot['bitis']).strftime('%H:%M')}"
+        )
+        lojistik_satirlar = [
+            s
+            for s in tum_satirlar
+            if re.search(r"Dayanak:\s*lojistik", s, re.I) and donus_aralik in s
+        ]
+        if not lojistik_satirlar:
+            return _reject(
+                f"RED: Pazar dönüş lojistik penceresi ({donus_aralik}) planda eksik.",
+                kontrol="pazar_donus",
+            )
 
     print(f"  ✓ ONAY — {len(kesif_satirlari)} keşif satırı doğrulandı")
     return {
