@@ -13,6 +13,9 @@ if str(_ROOT) not in sys.path:
 from calendar_logic import find_common_free_slots, load_calendars
 from session_config import MIN_KATILIMCI, MAX_KATILIMCI, build_session_context
 
+from langchain_core.runnables import RunnableConfig
+from langsmith import traceable
+
 from multi_agent.logistics_compute import profillerden_katilimci
 from multi_agent.state import SeyahatState
 
@@ -74,13 +77,17 @@ def bootstrap_from_session(session_path: str) -> dict:
         "hata_mesaji": "",
         "siradaki_ajan": "",
         "revizyon_sayisi": 0,
+        "kalite_raporu": {},
+        "kesif_hedef_turler": [],
+        "son_dugum": "",
         "lojistik_verisi": {},
         "kesif_verisi": {},
         "nihai_plan": "",
     }
 
 
-def bootstrap_node(state: SeyahatState) -> dict:
+@traceable(name="Bootstrap", run_type="chain", tags=["multi-agent", "bootstrap"])
+def bootstrap_node(state: SeyahatState, config: RunnableConfig) -> dict:
     print("\n[📂] Oturum ve takvim bootstrap...")
     session_path = _session_path_from_env_or_state(state)
     result = bootstrap_from_session(session_path)
@@ -89,4 +96,5 @@ def bootstrap_node(state: SeyahatState) -> dict:
     else:
         n = len(result.get("ortak_bos_zamanlar", []))
         print(f"  ✓ {n} ortak boş zaman slotu yüklendi.")
+    result["son_dugum"] = "bootstrap"
     return result

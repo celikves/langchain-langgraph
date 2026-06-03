@@ -37,6 +37,7 @@
     "tur": "gezi",
     "etkin": true,
     "mekan_zorunlu": true,
+    "aktivite_ad_oneki": "Gezi",
     "sure_dakika": 90,
     "sorgu_sablonu": "{hedef} müze antik kent gezilecek yer somut ad site:tripadvisor.com",
     "tercih_sorgu_sablonu": "{hedef} {tercih} somut mekan adı site:tripadvisor.com",

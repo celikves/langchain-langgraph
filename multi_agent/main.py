@@ -8,9 +8,15 @@ _ROOT = Path(__file__).resolve().parent.parent
 if str(_ROOT) not in sys.path:
     sys.path.insert(0, str(_ROOT))
 
-from multi_agent.agents import kesif_node, lojistik_node, planlayici_node, reviewer_node
+from multi_agent.tracing import setup_langsmith, trace_config
+
+setup_langsmith()
+
+from multi_agent.agents import lojistik_node, planlayici_node, reviewer_node
 from multi_agent.bootstrap import bootstrap_from_session, bootstrap_node
+from multi_agent.kesif_subgraph import kesif_subgraph
 from multi_agent.state import SeyahatState
+from multi_agent.supervisor import supervisor_node, supervisor_router
 
 try:
     from dotenv import load_dotenv
@@ -26,14 +32,15 @@ DEFAULT_SESSION = str(_ROOT / "data" / "sessions" / "antalya_kizkiza_tatil.json"
 def _halt_router(state: SeyahatState) -> str:
     if state.get("hata_durumu"):
         return END
-    return "devam"
+    return "supervisor"
 
 
 workflow = StateGraph(SeyahatState)
 
 workflow.add_node("bootstrap", bootstrap_node)
+workflow.add_node("supervisor", supervisor_node)
 workflow.add_node("lojistik", lojistik_node)
-workflow.add_node("kesif", kesif_node)
+workflow.add_node("kesif", kesif_subgraph)
 workflow.add_node("planlayici", planlayici_node)
 workflow.add_node("reviewer", reviewer_node)
 
@@ -41,43 +48,34 @@ workflow.add_edge(START, "bootstrap")
 workflow.add_conditional_edges(
     "bootstrap",
     _halt_router,
-    {END: END, "devam": "lojistik"},
+    {END: END, "supervisor": "supervisor"},
 )
 workflow.add_conditional_edges(
-    "lojistik",
-    _halt_router,
-    {END: END, "devam": "kesif"},
+    "supervisor",
+    supervisor_router,
+    {
+        "lojistik": "lojistik",
+        "kesif": "kesif",
+        "planlayici": "planlayici",
+        END: END,
+    },
 )
-workflow.add_conditional_edges(
-    "kesif",
-    _halt_router,
-    {END: END, "devam": "planlayici"},
-)
+workflow.add_edge("lojistik", "supervisor")
+workflow.add_edge("kesif", "supervisor")
 workflow.add_edge("planlayici", "reviewer")
+workflow.add_edge("reviewer", "supervisor")
 
-
-def reviewer_router(state: SeyahatState):
-    if state.get("hata_durumu") or state.get("siradaki_ajan") == "basarisiz_kapanis":
-        return END
-    if state.get("siradaki_ajan") == "yeniden_planla" and state.get("revizyon_sayisi", 0) < 2:
-        return "planlayici"
-    return END
-
-
-workflow.add_conditional_edges(
-    "reviewer",
-    reviewer_router,
-    {"planlayici": "planlayici", END: END},
-)
-
-app = workflow.compile()
+app = workflow.compile(name="Multi-Agent Seyahat Pipeline")
 
 
 if __name__ == "__main__":
     print("\n[🚀] Multi-Agent Seyahat Sistemi (yapılandırılmış state)\n")
-    config = {"configurable": {"thread_id": "multi_agent_travel_v2"}}
-
     session_path = os.getenv("SEYAHAT_SESSION_PATH", DEFAULT_SESSION)
+    config = trace_config(
+        "multi_agent_travel_v2",
+        run_name="Multi-Agent Seyahat Run",
+        session_path=session_path,
+    )
     baslangic = {"messages": [], "session_config_path": session_path, **bootstrap_from_session(session_path)}
 
     print(f"Oturum: {session_path}\n" + "-" * 50)
@@ -109,12 +107,19 @@ if __name__ == "__main__":
             print(f"  ⏳ {aks['isim']}: {aks['aksiyon']}")
 
         print("\n=== REVIEWER ===")
+        kalite = sonuc.get("kalite_raporu") or {}
         print(sonuc.get("hata_mesaji") or "ONAY")
+        if kalite.get("eksik_turler"):
+            print(f"  Eksik türler: {', '.join(kalite['eksik_turler'])}")
+        siradaki = sonuc.get("siradaki_ajan")
+        if siradaki:
+            print(f"  Akış: {siradaki} (revizyon: {sonuc.get('revizyon_sayisi', 0)})")
 
         print("\n" + "=" * 70)
         print("=== NİHAİ PLAN ===")
         print("=" * 70 + "\n")
         print(sonuc.get("nihai_plan", ""))
 
-    if os.getenv("LANGSMITH_TRACING"):
-        print("\n(i) LangSmith izleme aktif.")
+    if os.getenv("LANGSMITH_TRACING") or os.getenv("LANGCHAIN_TRACING_V2"):
+        project = os.getenv("LANGSMITH_PROJECT") or os.getenv("LANGCHAIN_PROJECT") or "?"
+        print(f"\n(i) LangSmith izleme aktif — proje: {project}")

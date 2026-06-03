@@ -1,8 +1,23 @@
 from __future__ import annotations
 
-from typing import Annotated, Any, NotRequired, TypedDict
+import operator
+from typing import Annotated, Any, Literal, NotRequired, TypedDict
 
 from langgraph.graph.message import add_messages
+
+SiradakiAjan = Literal[
+    "",
+    "lojistik",
+    "kesif",
+    "hedefli_kesif",
+    "planlayici",
+    "reviewer",
+    "yeniden_planla",
+    "bitir",
+    "basarisiz_kapanis",
+]
+
+SonDugum = Literal["", "bootstrap", "lojistik", "kesif", "planlayici", "reviewer"]
 
 
 class KatilimciBilgisi(TypedDict):
@@ -62,6 +77,13 @@ class KesifVerisi(TypedDict, total=False):
     uyari: str
 
 
+class KaliteRaporu(TypedDict, total=False):
+    onay: bool
+    eksik_turler: list[str]
+    hata_kodu: str
+    mesaj: str
+
+
 class OrtakBulusmaPenceresi(TypedDict, total=False):
     tatil_baslangic: str
     tatil_baslangic_saat_metin: str
@@ -99,10 +121,19 @@ class SeyahatState(TypedDict, total=False):
 
     lojistik_verisi: dict[str, Any]
     kesif_verisi: dict[str, Any]
+    # Paralel keşif uzmanları — reducer ile birleştirilir (Aşama 1 MA)
+    kesif_partial: Annotated[list[dict[str, Any]], operator.add]
+    kesif_hava: dict[str, Any]
+    kesif_tur_gruplari: dict[str, list[dict[str, Any]]]
+    kesif_aktif_tur: str
+    kesif_tur_sorgulari: list[dict[str, Any]]
     nihai_plan: str
 
     hata_mesaji: str
-    siradaki_ajan: str
+    siradaki_ajan: SiradakiAjan
     revizyon_sayisi: int
+    kalite_raporu: KaliteRaporu
+    kesif_hedef_turler: list[str]
+    son_dugum: SonDugum
     kesif_kategorileri: list[dict[str, Any]]
     kisi_sayisi: int

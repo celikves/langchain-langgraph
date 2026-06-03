@@ -7,13 +7,92 @@ import json
 import re
 from typing import Any
 
+_TR_LOWER = str.maketrans("İIĞÜŞÖÇ", "iığüşöç")
+
+# Tavily sonuçlarında hedef dışı şehir adı taşıyan mekanları elemek için
+_BASKA_SEHIRLER = (
+    "Ankara",
+    "İstanbul",
+    "Istanbul",
+    "İzmir",
+    "Izmir",
+    "Bursa",
+    "Adana",
+    "Konya",
+    "Gaziantep",
+    "Mersin",
+    "Kayseri",
+    "Eskişehir",
+    "Eskisehir",
+    "Diyarbakır",
+    "Diyarbakir",
+    "Samsun",
+    "Denizli",
+    "Şanlıurfa",
+    "Sanliurfa",
+    "Trabzon",
+    "Erzurum",
+    "Malatya",
+    "Manisa",
+    "Balıkesir",
+    "Balikesir",
+    "Aydın",
+    "Aydin",
+    "Tekirdağ",
+    "Tekirdag",
+    "Muğla",
+    "Mugla",
+    "Mardin",
+    "Antalya",
+    "Van",
+    "Batman",
+    "Elazığ",
+    "Elazig",
+    "Sakarya",
+    "Kocaeli",
+    "Hatay",
+    "Kahramanmaraş",
+    "Kahramanmaras",
+    "Rize",
+    "Ordu",
+    "Afyon",
+    "Çanakkale",
+    "Canakkale",
+)
+
 # Makale / liste başlığı kalıpları (gerçek işletme adı değil)
+_KAYNAK_SONEK = re.compile(
+    r"\s*[-–|]\s*"
+    r"(tripadvisor|vikipedi|wikipedia|google\s*maps|apple\s*maps|facebook|instagram|"
+    r"yelp|foursquare|beldibi\s*[-–]?\s*tripadvisor|fast\s*food\.?)\s*$",
+    re.I,
+)
+_OTEL_LISTE_KALIPI = re.compile(
+    r"(?i)(\bhotels?\b|\bhotel\b|\bAKKA\b|\bresort\b|\baccommodation\b)"
+)
+
+
+def mekan_adi_temizle(ad: str) -> str:
+    """Arama başlığındaki kaynak/SEO soneklerini kısaltır."""
+    ad = (ad or "").strip()
+    if not ad:
+        return ""
+    onceki = None
+    while ad != onceki:
+        onceki = ad
+        ad = _KAYNAK_SONEK.sub("", ad).strip()
+        ad = re.sub(r"\s*-\s*Tripadvisor\s*$", "", ad, flags=re.I).strip()
+        ad = re.sub(r"\s*-\s*Beldi(?:bi)?\s*$", "", ad, flags=re.I).strip()
+    return ad
+
+
 _GENERIC_PATTERNS = re.compile(
     r"(?i)("
     r"\ben\s+iyi\b|\ben\s+popüler\b|\brestoranları\b|\brestoranlar\b|\bkafeler\b|"
     r"\bmekanları\b|\bmekanlar\b|\böneriler\b|\brehber\b|\bliste\b|"
     r"\btop\s*\d+\b|\bthe\s+\d+\s+best\b|\bbest\s+\d+\b|nereye\s+gidelim|nerede\s+yenir|"
     r"gezilecek|yapılacak|best\s+restaurants|'\s*nın\s+en\s+iyi|instagram|@\w+|"
+    r"\bbelediyesi\b|\bbüyükşehir\b|"
     r"old\s+town\s*$|updated\s+20\d{2}|account\s+of\b|hakkında\s+bilmeniz|"
     r"lezzet\s+rotası|gastronomi\s+turizmi|you'll\s+want\s+to\s+visit|want\s+to\s+visit"
     r")"
@@ -28,9 +107,33 @@ _NAME_IN_CONTENT = re.compile(
 )
 
 
+def _norm_sehir(s: str) -> str:
+    return re.sub(r"\s+", " ", (s or "").strip().translate(_TR_LOWER).casefold())
+
+
+def mekan_hedef_sehre_uygun(ad: str, hedef: str) -> bool:
+    """Mekan adında hedef dışı bir şehir adı geçiyorsa False."""
+    ad_n = _norm_sehir(ad)
+    hedef_n = _norm_sehir(hedef)
+    if not ad_n or not hedef_n:
+        return True
+    for sehir in _BASKA_SEHIRLER:
+        sn = _norm_sehir(sehir)
+        if not sn or sn == hedef_n:
+            continue
+        if re.search(rf"(?<![\wçğıöşü]){re.escape(sn)}(?![\wçğıöşü])", ad_n):
+            return False
+    return True
+
+
 def gecerli_mekan_adi(ad: str) -> bool:
-    ad = (ad or "").strip()
+    ad = mekan_adi_temizle(ad)
     if len(ad) < 3 or len(ad) > 55:
+        return False
+    if _OTEL_LISTE_KALIPI.search(ad) and not re.search(
+        r"(?i)(restaurant|restoran|cafe|kafe|bistro|lokanta|bar\s*&)",
+        ad,
+    ):
         return False
     if _GENERIC_PATTERNS.search(ad):
         return False
@@ -75,7 +178,7 @@ def _normalize_results(raw: Any) -> list[dict]:
 
 
 def _ekle(mekanlar: list[dict], ad: str, kaynak: str, content: str = "") -> None:
-    ad = ad.strip()
+    ad = mekan_adi_temizle(ad)
     if not gecerli_mekan_adi(ad):
         return
     norm = ad.lower()

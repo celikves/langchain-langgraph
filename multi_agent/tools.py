@@ -9,6 +9,7 @@ from pathlib import Path
 from typing import Any
 
 from langchain_core.tools import tool
+from langchain_core.runnables.config import ensure_config
 
 _ROOT = Path(__file__).resolve().parent.parent
 if str(_ROOT) not in sys.path:
@@ -47,22 +48,24 @@ def _tavily_ham_sonuc(sorgu: str) -> tuple[Any, str]:
         if TavilySearch is not None:
             if _tavily_araci is None:
                 _tavily_araci = TavilySearch(max_results=5, tavily_api_key=api_key)
-            return _tavily_araci.invoke({"query": sorgu}), ""
+            return _tavily_araci.invoke({"query": sorgu}, config=ensure_config(None)), ""
         if TavilySearchResults is not None:
             if _tavily_araci is None:
                 _tavily_araci = TavilySearchResults(max_results=5, tavily_api_key=api_key)
-            return _tavily_araci.invoke(sorgu), ""
+            return _tavily_araci.invoke(sorgu, config=ensure_config(None)), ""
     except Exception as e:
         return [], f"Tavily hatası: {e}"
 
-    ham = search_places_online.invoke({"query": sorgu})
+    ham = search_places_online.invoke({"query": sorgu}, config=ensure_config(None))
     return ham, ""
 
 
 @tool
 def ortak_bos_zaman_bul(takvim_dosya_yolu: str) -> str:
     """Takvim JSON yolundan ortak boş saatleri döndürür (calendar_logic)."""
-    return _ortak_bos_zaman_bul.invoke({"takvim_dosya_yolu": takvim_dosya_yolu})
+    return _ortak_bos_zaman_bul.invoke(
+        {"takvim_dosya_yolu": takvim_dosya_yolu}, config=ensure_config(None)
+    )
 
 
 @tool
@@ -79,7 +82,8 @@ def trafik_ve_mesafe_getir(
             "varis_sehir": varis_sehir,
             "kalkis_saati": kalkis_saati,
             "tarih": tarih,
-        }
+        },
+        config=ensure_config(None),
     )
 
 
@@ -87,14 +91,15 @@ def trafik_ve_mesafe_getir(
 def bilet_ara(tarih: str, kalkis: str, varis: str, tercih: str = "otobus") -> str:
     """Güzergahta sefer/bilet araması (yapılandırılmış JSON)."""
     return _bilet_ara.invoke(
-        {"tarih": tarih, "kalkis": kalkis, "varis": varis, "tercih": tercih}
+        {"tarih": tarih, "kalkis": kalkis, "varis": varis, "tercih": tercih},
+        config=ensure_config(None),
     )
 
 
 @tool
 def hava_durumu_getir(sehir: str, tarih: str) -> str:
     """Şehir ve tarih için hava durumu (Open-Meteo)."""
-    return get_weather_forecast.invoke({"city": sehir, "date": tarih})
+    return get_weather_forecast.invoke({"city": sehir, "date": tarih}, config=ensure_config(None))
 
 
 @tool
