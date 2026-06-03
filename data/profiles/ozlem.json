@@ -1,0 +1,14 @@
+{
+  "isim": "Özlem",
+  "kalkis_yeri": "Manisa",
+  "sehir": "Manisa",
+  "rol": "katilimci",
+  "tercihler": ["sakin kafe", "yürüyüş", "yerel lezzetler"],
+  "butce": "orta",
+  "mesai": {
+    "baslangic": "09:00",
+    "bitis": "17:00",
+    "gunler": "Pazartesi–Cuma"
+  },
+  "notlar": "Cuma 17:00'de iş çıkışı; Manisa–Antalya otobüs veya araç kiralama uygun."
+}

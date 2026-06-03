@@ -26,7 +26,10 @@ tool_node = ToolNode(surprise_visit_tools)
 
 def calendar_node(state: SeyahatState) -> dict:
     """Saf Python — LLM takvim okumaz."""
-    data = load_calendars()
+    session_path = state.get("session_config_path")
+    ctx = build_session_context(session_path)
+    takvim_path = ctx["takvim_dosyasi"]
+    data = load_calendars(takvim_path)
     slots = find_common_free_slots(data)
     slot_metinleri = [s["metin"] for s in slots]
     ozet = summarize_calendars_for_llm(data)
@@ -42,7 +45,8 @@ def calendar_node(state: SeyahatState) -> dict:
     }
 
     return {
-        "ortak_bos_zamanlar": slot_metinleri,
+        "ortak_bos_zamanlar": slots,
+        "session_config_path": ctx.get("session_config_path", ""),
         "kullanici_lokasyonlari": lokasyonlar,
         "secilen_hedef": hedef,
         "takvim_ozeti": ozet,
@@ -60,13 +64,14 @@ def calendar_node(state: SeyahatState) -> dict:
 
 def planner_node(state: SeyahatState) -> dict:
     bos = state.get("ortak_bos_zamanlar") or []
+    bos_metin = [s["metin"] if isinstance(s, dict) else str(s) for s in bos]
     lok = state.get("kullanici_lokasyonlari") or {}
-    hedef = state.get("secilen_hedef", "Antalya")
+    hedef = state.get("secilen_hedef") or build_session_context().get("hedef_sehir", "")
 
     context = (
         f"Buluşma hedefi: {hedef}\n"
         f"Lokasyonlar: {json.dumps(lok, ensure_ascii=False)}\n"
-        f"Ortak boş zamanlar (Python): {', '.join(bos) if bos else 'yok'}\n"
+        f"Ortak boş zamanlar (Python): {', '.join(bos_metin) if bos_metin else 'yok'}\n"
         f"Mesai kısıtı: hafta içi 08:00–17:00 arası seyahat/etkinlik YASAK.\n"
         f"Takvim özeti:\n{state.get('takvim_ozeti', '')}"
     )

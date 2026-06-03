@@ -1,0 +1,14 @@
+{
+  "session_id": "antalya_kizkiza_tatil",
+  "ana_gorev": "{kisi_sayisi} kişinin {hedef_sehir}'de buluşması: her katılımcının kalkış şehrinden varış saatlerini senkronize et, en geç geleni ve erken gelenlerin bekleme/karşılama adımlarını açıkça yaz.",
+  "hedef_sehir": "Antalya",
+  "profil_dosyalari": [
+    "data/profiles/vesile.json",
+    "data/profiles/ozlem.json",
+    "data/profiles/nilay.json"
+  ],
+  "takvim_dosyasi": "data/calendars/antalya_tatili_takvim.json",
+  "ortak_kisitlamalar": "{kisi_sayisi} kişinin buluşması. Birlikte vakit geçirme odaklı. Plan, profillerdeki mesai ve takvimdeki ortak boş zamanlara (Python hesabı) uymalıdır. Varış saatleri farklıysa erken gelenlerin bekleme ve karşılama lojistiği zorunlu.",
+  "is_akis_adimlari": "1. Zaman ve Takvim: ortak_bos_zaman_bul; saatleri uydurma.\n2. Lojistik: her kalkış → {hedef_sehir} rota, bilet/sefer; en geç varış; erken gelen bekleme.\n3. Hava: buluşma günleri {hedef_sehir}.\n4. Keşif: profil tercihleri + data/defaults/kesif_kategorileri.json (yemek, plaj, gezi, müzik — oturum override edebilir).\n5. Nihai plan: saat saat program; keşif aktivite adları birebir.",
+  "ozel_kurallar": "- Asla 'araştırabilirsiniz' deme; hesapları sen yap.\n- Her katılımcı için ayrı rota zorunlu (profil_dosyalari listesinden).\n- Mock veya varsayımsal saat kullanma; takvim ve araç çıktıları tek gerçeklik kaynağı.\n- Ulaşım ve konaklama keşif JSON'unda değil; lojistik katmanda."
+}

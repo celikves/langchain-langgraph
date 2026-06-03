@@ -1,0 +1,42 @@
+{
+  "meta": {
+    "aciklama": "3 kız arkadaş — Ankara, Manisa, İzmir kalkışlı Antalya kız kıza tatil (Cuma akşamı + hafta sonu)",
+    "hedef_sehir": "Antalya",
+    "gunler": ["2026-06-05", "2026-06-06", "2026-06-07"],
+    "gun_baslangic": "07:00",
+    "gun_bitis": "23:00",
+    "minimum_bos_dakika": 120
+  },
+  "kisiler": {
+    "vesile": {
+      "ad": "Vesile",
+      "sehir": "Ankara",
+      "rol": "katilimci",
+      "etkinlikler": [
+        {"tarih": "2026-06-05", "baslangic": "08:00", "bitis": "18:00", "baslik": "Mesai (ofis)"},
+        {"tarih": "2026-06-06", "baslangic": "10:00", "bitis": "11:30", "baslik": "Kuaför randevusu"},
+        {"tarih": "2026-06-07", "baslangic": "19:00", "bitis": "21:00", "baslik": "Rezervasyonlu akşam yemeği (Antalya)"}
+      ]
+    },
+    "ozlem": {
+      "ad": "Özlem",
+      "sehir": "Manisa",
+      "rol": "katilimci",
+      "etkinlikler": [
+        {"tarih": "2026-06-05", "baslangic": "09:00", "bitis": "17:00", "baslik": "Mesai (fabrika)"},
+        {"tarih": "2026-06-06", "baslangic": "15:00", "bitis": "16:30", "baslik": "Market / alışveriş"},
+        {"tarih": "2026-06-07", "baslangic": "14:00", "bitis": "16:00", "baslik": "Aile araması (Manisa, uzaktan)"}
+      ]
+    },
+    "nilay": {
+      "ad": "Nilay",
+      "sehir": "İzmir",
+      "rol": "katilimci",
+      "etkinlikler": [
+        {"tarih": "2026-06-05", "baslangic": "13:00", "bitis": "15:00", "baslik": "Doktor kontrolü"},
+        {"tarih": "2026-06-06", "baslangic": "08:00", "bitis": "09:30", "baslik": "Spor salonu"},
+        {"tarih": "2026-06-07", "baslangic": "19:00", "bitis": "21:00", "baslik": "Rezervasyonlu akşam yemeği (Antalya, Vesile ile)"}
+      ]
+    }
+  }
+}

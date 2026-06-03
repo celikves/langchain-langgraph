@@ -21,13 +21,13 @@ class AsistanState(TypedDict, total=False):
     hedef_sehir: str
     takvim_dosyasi: str
     takvim_ozeti: str
-    ortak_bos_zamanlar: list[str]
+    ortak_bos_zamanlar: list[dict]
 
 
 # LangGraph çok düğümlü akış (travel_graph.py)
 class SeyahatState(TypedDict, total=False):
     messages: Annotated[list, add_messages]
-    ortak_bos_zamanlar: list[str]
+    ortak_bos_zamanlar: list[dict]
     kullanici_lokasyonlari: dict
     secilen_hedef: str
     plan_taslagi: str

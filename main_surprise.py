@@ -29,7 +29,8 @@ if __name__ == "__main__":
 
     print("\n=== ORTAK BOŞ ZAMANLAR (Python) ===")
     for slot in result.get("ortak_bos_zamanlar", []):
-        print(f"  • {slot}")
+        metin = slot.get("metin", slot) if isinstance(slot, dict) else slot
+        print(f"  • {metin}")
 
     print("\n=== LOKASYONLAR ===")
     print(result.get("kullanici_lokasyonlari"))

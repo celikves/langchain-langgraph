@@ -2,10 +2,9 @@ import os
 from langchain_core.messages import SystemMessage, HumanMessage
 import json
 import re
-import ast
 
-from state import SeyahatState
-from tools import lojistik_araclari, kesif_araclari
+from multi_agent.state import SeyahatState
+from multi_agent.tools import kesif_araclari, lojistik_araclari
 
 try:
     from dotenv import load_dotenv
@@ -65,220 +64,133 @@ def _build_llm():
 llm = _build_llm()
 
 
-def _deterministic_plan_fallback(
-    lojistik_verisi: dict, kesif_verisi: dict, *, hata_mesaji: str = ""
-) -> str:
-    """LLM erişilemezse kurallı, doğrulanabilir bir plan üretir."""
-    mekanlar = [m.get("ad", "") for m in kesif_verisi.get("mekanlar", []) if m.get("ad")]
-    hava = kesif_verisi.get("hava", {}) or {}
-    sicaklik = hava.get("sicaklik_c", "")
-    yagis = hava.get("yagis_ihtimali_yuzde", "")
+def _halt_payload(hata: str) -> dict:
+    return {"hata_durumu": hata, "siradaki_ajan": "basarisiz_kapanis"}
 
-    rota_ozetleri = lojistik_verisi.get("rota_ozetleri", []) or []
-    en_uzun_sure = 6.0
-    for rota in rota_ozetleri:
-        mesafe_sure = str(rota.get("mesafe_sure", ""))
-        m = re.search(r"(\d+(?:[.,]\d+)?)\s*saat", mesafe_sure, flags=re.IGNORECASE)
-        if m:
-            try:
-                en_uzun_sure = max(en_uzun_sure, float(m.group(1).replace(",", ".")))
-            except ValueError:
-                pass
-    varis_saat = "23:30" if en_uzun_sure >= 5.5 else "22:30"
-
-    mekan_1 = mekanlar[0] if len(mekanlar) > 0 else "yok"
-    mekan_2 = mekanlar[1] if len(mekanlar) > 1 else "yok"
-    mekan_3 = mekanlar[2] if len(mekanlar) > 2 else "yok"
-
-    not_satiri = []
-    if sicaklik or yagis:
-        not_satiri.append(
-            "09:00-09:30 | Hava Notu: "
-            f"Sıcaklık {sicaklik or '?'}°C, Yağış İhtimali %{yagis or '?'} (Mekan: yok) | Dayanak: kesif"
-        )
-    if hata_mesaji:
-        not_satiri.append(
-            "09:30-10:00 | Revizyon Notu Uygulandı (Mekan: yok) | Dayanak: lojistik"
-        )
-
-    cumartesi_satirlari = [
-        "10:00-12:00 | Sabah Etkinliği "
-        f"(Mekan: {mekan_1}) | Dayanak: kesif",
-        "12:30-14:00 | Öğle Etkinliği "
-        f"(Mekan: {mekan_2}) | Dayanak: kesif",
-        "16:00-18:00 | Akşamüstü Etkinliği "
-        f"(Mekan: {mekan_3}) | Dayanak: kesif",
-    ]
-
-    pazar_satirlari = [
-        "09:00-10:00 | Kahvaltı ve Hazırlık (Mekan: yok) | Dayanak: lojistik",
-        f"10:00-14:00 | Dönüş Yolculuğu (Mekan: yok) | Dayanak: lojistik",
-    ]
-
-    plan_satirlari = [
-        "Cuma Akşamı",
-        f"18:00-{varis_saat} | Yolculuk Başlangıcı (Mekan: yok) | Dayanak: lojistik",
-        f"{varis_saat}-00:30 | Otele Yerleşme (Mekan: yok) | Dayanak: lojistik",
-        "",
-        "Cumartesi",
-        *not_satiri,
-        *cumartesi_satirlari,
-        "",
-        "Pazar",
-        *pazar_satirlari,
-    ]
-    return "\n".join(plan_satirlari)
 
 # ==========================================
 # 1. LOJİSTİK AJANI VE DÜĞÜMÜ
 # ==========================================
-lojistik_prompt = """Sen uzman bir Lojistik Ajanısın. 
-Görevin, kullanıcıların takvim kısıtlamalarını ve aralarındaki mesafeyi hesaplayarak en uygun yola çıkış ve buluşma saatlerini bulmaktır. 
-KESİNLİKLE 'ortak_bos_zaman_bul' ve 'mesafe_ve_sure_hesapla' araçlarını kullan.
-Asla serbest metinle tahmin üretme; araç çağırmadan cevap verme.
-Sadece şu formatta rapor ver:
-- Kısıt Özeti
-- Kişi Bazlı Çıkış/Varış Saatleri
-- Ortak Buluşma Saati
-- Varsayımlar (varsa)"""
-
 def lojistik_node(state: SeyahatState):
-    print("\n[🤖] Lojistik Ajanı Çalışıyor...")
-    profiller = state.get("kullanici_profilleri", [])
-    hedef = "Antalya"
+    print("\n[🤖] Lojistik Ajanı — N kişi rota ve buluşma senkronizasyonu...")
+    if state.get("hata_durumu"):
+        return {}
 
-    ortak_bos_zaman_araci = next(t for t in lojistik_araclari if t.name == "ortak_bos_zaman_bul")
-    mesafe_araci = next(t for t in lojistik_araclari if t.name == "mesafe_ve_sure_hesapla")
+    from multi_agent.logistics_compute import hesapla_lojistik_plani
 
-    kisit_metin = (
-        f"Kullanıcı Profilleri: {json.dumps(profiller, ensure_ascii=False)}\n"
-        f"Ortak Kısıtlamalar: {state.get('ortak_kisitlamalar', '')}"
-    )
-    ortak_bulusma = ortak_bos_zaman_araci.invoke({"kullanici_kisitlamalari": kisit_metin})
+    profiller = state.get("kullanici_profilleri") or []
+    katilimcilar = state.get("katilimci_bilgileri") or []
+    slots = state.get("ortak_bos_zamanlar") or []
+    hedef = state.get("hedef_sehir", "")
+    if not hedef:
+        return _halt_payload("hedef_sehir state'te tanımlı değil.")
+    if not slots:
+        return _halt_payload("ortak_bos_zamanlar boş; lojistik hesaplanamaz.")
 
-    rota_ozetleri = []
-    for profil in profiller:
-        kalkis = profil.get("kalkis_yeri", "")
-        isim = profil.get("isim", "Katılımcı")
-        if not kalkis:
-            continue
-        rota = mesafe_araci.invoke({"kalkis_sehri": kalkis, "varis_sehri": hedef})
-        rota_ozetleri.append(
-            {
-                "isim": isim,
-                "kalkis_yeri": kalkis,
-                "hedef": hedef,
-                "mesafe_sure": str(rota),
-            }
+    trafik_araci = next(t for t in lojistik_araclari if t.name == "trafik_ve_mesafe_getir")
+    bilet_araci = next(t for t in lojistik_araclari if t.name == "bilet_ara")
+
+    print(f"  → {len(katilimcilar)} katılımcı için trafik_ve_mesafe_getir + bilet_ara döngüsü")
+    for k in katilimcilar:
+        print(f"     • {k.get('isim')}: {k.get('kalkis_sehri')} → {hedef}")
+
+    def trafik_fn(kalkis: str, varis: str, saat: str, tarih: str) -> str:
+        return str(
+            trafik_araci.invoke(
+                {
+                    "kalkis_sehir": kalkis,
+                    "varis_sehir": varis,
+                    "kalkis_saati": saat,
+                    "tarih": tarih,
+                }
+            )
         )
+
+    def bilet_fn(tarih: str, kalkis: str, varis: str, tercih: str) -> str:
+        return str(
+            bilet_araci.invoke(
+                {"tarih": tarih, "kalkis": kalkis, "varis": varis, "tercih": tercih}
+            )
+        )
+
+    lojistik_plani, pencere, hata = hesapla_lojistik_plani(
+        profiller,
+        katilimcilar,
+        slots[0],
+        hedef,
+        trafik_fn,
+        bilet_fn,
+        tum_slotlar=slots,
+    )
+    if hata:
+        return _halt_payload(hata)
+
+    for v in pencere.get("varis_ozeti", []):
+        print(f"     ✓ {v['isim']} varış: {v['varis_saat_metin']}")
+    print(f"  → Gece otel dinlenme: {pencere.get('gece_otel_baslangic_saat_metin')}–{pencere.get('gece_otel_bitis_saat_metin')}")
+    print(f"  → İlk dış aktivite (takvim): {pencere.get('ortak_etkinlik_baslangic_saat_metin')} ({pencere.get('ilk_ortak_slot_metin', '')})")
 
     lojistik_verisi = {
         "kisit_ozeti": state.get("ortak_kisitlamalar", ""),
-        "rota_ozetleri": rota_ozetleri,
-        "ortak_bulusma": str(ortak_bulusma),
+        "rota_ozetleri": list(lojistik_plani.values()),
+        "ortak_bulusma_penceresi": pencere,
+        "ilk_ortak_slot": slots[0],
+        "arac_cagrilari": ["trafik_ve_mesafe_getir", "bilet_ara"],
     }
-    return {"lojistik_verisi": lojistik_verisi}
+    return {
+        "lojistik_plani": lojistik_plani,
+        "ortak_bulusma_penceresi": pencere,
+        "lojistik_verisi": lojistik_verisi,
+    }
 
 # ==========================================
 # 2. KEŞİF AJANI VE DÜĞÜMÜ
 # ==========================================
-kesif_prompt = """Sen uzman bir Keşif Ajanısın. 
-Görevin, hedef şehirdeki hava durumunu öğrenmek ve hava koşullarına uygun, bütçeyi aşmayan gerçek mekanlar bulmaktır. 
-KESİNLİKLE 'hava_durumu_getir' ve 'internette_mekan_ara' araçlarını kullan.
-Kendi aklından mekan ismi UYDURMA.
-Önce hava durumunu çağır, sonra mekanları ara.
-Sadece araç çıktılarından gelen doğrulanabilir bilgileri raporla.
-Rapor formatı:
-- Hava Durumu (kesin veri)
-- Önerilen Mekanlar (yalnızca araçta geçen adlar)
-- Yaklaşık Bütçe Notu (araçta veri yoksa 'belirsiz')"""
-
-def _extract_weather_fields(weather_text: str) -> dict:
-    sicaklik_match = re.search(r"(\d+(?:[.,]\d+)?)°C", weather_text)
-    yagis_match = re.search(r"Yağış ihtimali:\s*%?(\d+)", weather_text, flags=re.IGNORECASE)
-    return {
-        "ham_metin": weather_text,
-        "sicaklik_c": sicaklik_match.group(1) if sicaklik_match else "",
-        "yagis_ihtimali_yuzde": yagis_match.group(1) if yagis_match else "",
-    }
-
-
-def _extract_places_from_tool_output(raw_output: str) -> list[dict]:
-    mekanlar: list[dict] = []
-    content = raw_output.strip()
-    try:
-        parsed = json.loads(content)
-        if isinstance(parsed, dict):
-            adaylar = parsed.get("results") or parsed.get("data") or []
-        elif isinstance(parsed, list):
-            adaylar = parsed
-        else:
-            adaylar = []
-        for item in adaylar:
-            if not isinstance(item, dict):
-                continue
-            ad = (item.get("title") or item.get("name") or "").strip()
-            kaynak = (item.get("url") or "").strip()
-            if ad:
-                mekanlar.append({"ad": ad, "kaynak": kaynak, "butce_notu": "belirsiz"})
-        if mekanlar:
-            return mekanlar
-    except json.JSONDecodeError:
-        pass
-
-    # Tavily bazı sürümlerde Python liste/dict repr döndürebiliyor.
-    try:
-        parsed_py = ast.literal_eval(content)
-        if isinstance(parsed_py, list):
-            for item in parsed_py:
-                if not isinstance(item, dict):
-                    continue
-                ad = (item.get("title") or item.get("name") or "").strip()
-                kaynak = (item.get("url") or "").strip()
-                if ad:
-                    mekanlar.append({"ad": ad, "kaynak": kaynak, "butce_notu": "belirsiz"})
-            if mekanlar:
-                return mekanlar
-    except (ValueError, SyntaxError):
-        pass
-
-    # Tavily string çıktılarında sıklıkla "title='...'" bulunur; yalnızca araç çıktısındaki birebir adlar alınır.
-    for ad in re.findall(r"title='([^']+)'", raw_output):
-        mekanlar.append({"ad": ad.strip(), "kaynak": "", "butce_notu": "belirsiz"})
-
-    return mekanlar
+kesif_prompt = """Keşif deterministik kesif_layer modülü ile yapılır (profil tercihleri × N arama)."""
 
 
 def kesif_node(state: SeyahatState):
     print("\n[🔎] Keşif Ajanı Çalışıyor...")
+    if state.get("hata_durumu"):
+        return {}
+
+    from multi_agent.kesif_layer import kesif_verisi_topla
+
     hava_araci = next(t for t in kesif_araclari if t.name == "hava_durumu_getir")
     mekan_araci = next(t for t in kesif_araclari if t.name == "internette_mekan_ara")
-    hedef_tarih = state.get("hedef_tarih", "2026-06-04")
+    hedef = state.get("hedef_sehir", "")
+    hedef_tarih = state.get("hedef_tarih", "")
+    if not hedef or not hedef_tarih:
+        return _halt_payload("hedef_sehir veya hedef_tarih eksik.")
 
-    hava_raw = hava_araci.invoke({"sehir": "Antalya", "tarih": hedef_tarih})
-    mekan_raw = mekan_araci.invoke(
-        {"sorgu": f"Antalya {hedef_tarih} orta bütçeli kafe restoran sahil mekan önerileri gerçek isimleri"}
+    profiller = state.get("kullanici_profilleri") or []
+    kategoriler = state.get("kesif_kategorileri") or []
+
+    def hava_fn(sehir: str, tarih: str) -> str:
+        return str(hava_araci.invoke({"sehir": sehir, "tarih": tarih}))
+
+    def mekan_fn(sorgu: str) -> str:
+        return str(mekan_araci.invoke({"sorgu": sorgu}))
+
+    kesif_verisi, hata = kesif_verisi_topla(
+        hedef,
+        hedef_tarih,
+        profiller,
+        kategoriler,
+        hava_fn=hava_fn,
+        mekan_ara_fn=mekan_fn,
     )
-    mekanlar = []
-    mekan_uyari = ""
-    try:
-        mekan_payload = json.loads(str(mekan_raw))
-        if isinstance(mekan_payload, dict):
-            mekanlar = mekan_payload.get("mekanlar", []) or []
-            mekan_uyari = mekan_payload.get("uyari", "") or ""
-    except json.JSONDecodeError:
-        mekanlar = _extract_places_from_tool_output(str(mekan_raw))
+    if hata:
+        return _halt_payload(hata)
 
-    kesif_verisi = {
-        "hava": _extract_weather_fields(str(hava_raw)),
-        "mekanlar": mekanlar,
-        "uyari": mekan_uyari,
-    }
-
-    if not kesif_verisi["mekanlar"]:
-        kesif_verisi["uyari"] = (
-            kesif_verisi["uyari"] or "Mekan adı çıkarılamadı; planlayıcı özel isim üretmemeli."
-        )
+    mekan_adlari = [m["ad"] for m in kesif_verisi.get("mekanlar", [])]
+    aktivite_adlari = [a["ad"] for a in kesif_verisi.get("aktiviteler", [])]
+    print(f"  ✓ {kesif_verisi.get('arama_sayisi', 0)} arama → "
+          f"{len(mekan_adlari)} mekan, {len(aktivite_adlari)} aktivite")
+    if mekan_adlari:
+        print(f"  ✓ Mekanlar: {', '.join(mekan_adlari[:5])}")
+    if aktivite_adlari:
+        print(f"  ✓ Aktiviteler: {', '.join(dict.fromkeys(aktivite_adlari))}")
 
     return {"kesif_verisi": kesif_verisi}
 
@@ -289,46 +201,81 @@ def kesif_node(state: SeyahatState):
 # Sadece State'teki verileri alıp akıcı bir metne döker.
 def planlayici_node(state: SeyahatState):
     print("\n[✍️] Planlayıcı Ajan Sentez Yapıyor...")
+    if state.get("hata_durumu"):
+        return {}
+
     revizyon_sayisi = state.get("revizyon_sayisi", 0)
     hata_mesaji = state.get("hata_mesaji", "")
-    
-    kesif_verisi = state.get("kesif_verisi") or {"hava": {}, "mekanlar": [], "uyari": ""}
+
+    kesif_verisi = state.get("kesif_verisi") or {
+        "hava": {},
+        "mekanlar": [],
+        "aktiviteler": [],
+        "uyari": "",
+    }
+    aktiviteler = kesif_verisi.get("aktiviteler") or []
     mekan_adlari = [m.get("ad", "") for m in kesif_verisi.get("mekanlar", []) if m.get("ad")]
-    if not mekan_adlari:
-        return {
-            "nihai_plan": (
-                "Plan üretimi atlandı: Keşif verisinde doğrulanmış mekan adı yok.\n"
-                "Neden: Mekan listesi boş geldiği için planlayıcı yaratıcı doldurma yapmamalı."
-            )
+    if not aktiviteler and not mekan_adlari:
+        return _halt_payload("Planlayıcı: keşif verisinde aktivite/mekan yok.")
+
+    aktivite_ozet = [
+        {
+            "tur": a.get("tur"),
+            "ad": a.get("ad"),
+            "sure_dakika": a.get("sure_dakika"),
+            "mekan": a.get("mekan") or "yok",
+            "tercih_sahibi": a.get("tercih_sahibi", ""),
         }
+        for a in aktiviteler
+    ]
+    tercih_ozeti = kesif_verisi.get("tercih_ozeti") or []
 
     planlayici_prompt = f"""Sen Baş Planlayıcı Ajansın.
 Aşağıdaki lojistik ve keşif verilerini kullanarak saat saat yapılandırılmış bir sürpriz hafta sonu planı oluştur.
 Asla veri uydurma.
 
+--- Katılımcılar (yapılandırılmış) ---
+{json.dumps(state.get('katilimci_bilgileri', []), ensure_ascii=False)}
+
+--- Profil tercih özeti (herkese gün içinde yer ver) ---
+{json.dumps(tercih_ozeti, ensure_ascii=False)}
+
+--- Ortak boş zamanlar (Python) ---
+{json.dumps(state.get('ortak_bos_zamanlar', []), ensure_ascii=False)}
+
+--- Lojistik planı (çıkış/varış) ---
+{json.dumps(state.get('lojistik_plani', {}), ensure_ascii=False)}
+
+--- Ortak buluşma penceresi ---
+{json.dumps(state.get('ortak_bulusma_penceresi', {}), ensure_ascii=False)}
+
 --- Lojistik Verisi ---
 {json.dumps(state.get('lojistik_verisi', {}), ensure_ascii=False)}
 
---- Keşif Verisi ---
+--- Keşif Verisi (mekanlar + aktiviteler) ---
 {json.dumps(kesif_verisi, ensure_ascii=False)}
+
+--- Keşif aktiviteleri (yalnızca bunları kullan) ---
+{json.dumps(aktivite_ozet, ensure_ascii=False)}
 
 --- Reviewer Geri Bildirimi (varsa) ---
 {hata_mesaji}
 
 Kurallar:
-1. Sadece kesif_verisi.mekanlar[].ad alanındaki şu mekan adlarını kullan: {mekan_adlari}.
-2. Keşif verisinde olmayan hiçbir özel isim yazma.
-3. Koşullu ifade yasak: "eğer", "olursa", "muhtemelen" kullanma.
-4. Çıktı formatı sabit:
-   - Cuma Akşamı
-   - Cumartesi
-   - Pazar
-   Her satır: HH:MM-HH:MM | Etkinlik (Mekan: <mekan_adı veya yok>) | Dayanak: <lojistik|kesif>
-5. Zaman planında lojistik saatleriyle çelişme.
-6. Çıktı dili Türkçe olsun.
-7. Cuma buluşması gerçekleştiyse Pazar günü tekrar buluşma planlama.
-8. Keşif verisindeki hava bilgisinden en az bir kesin veri satırı kullan (örn. sıcaklık/yağış).
-9. Revizyon sayısı: {revizyon_sayisi}. Reviewer geri bildirimini ihlal etme.
+1. Keşif satırlarında etkinlik metni BİREBİR aktiviteler[].ad olmalı — "Yemek", "Gezi", "Brunch" gibi genel etiket YASAK.
+   Örnek doğru: "Canlı müzik — Siestita Cafe (Mekan: Siestita Cafe)" veya "Vanilla Restaurant (Mekan: Vanilla Restaurant)".
+2. Lojistik satırları (yola çıkış, varış, otelde bekleme, dinlenme/uyku): Dayanak: lojistik yaz; (Mekan: ...) ZORUNLU DEĞİL.
+3. Keşif satırları: (Mekan: ...) zorunlu. Plaj dışında "yok" YASAK — müzik/yemek/gezi için mutlaka keşifteki mekan adı.
+4. Plaj: ad="Plaj/yüzme"; mekan keşifte varsa yaz, yoksa "yok".
+5. Aktivite zinciri serbest: 60 dk kafe → 90 dk müze → 120 dk plaj (hepsi keşif aktivitelerinden).
+6. Cumartesi/Pazar: tercih_ozeti'ndeki her katılımcıya en az bir aktivite (tercih_sahibi veya uyumlu tur).
+7. sure_dakika sürelerine uy; koşullu ifade ("eğer/olursa/muhtemelen") yasak.
+8. Format:
+   - Cuma Akşamı / Cumartesi / Pazar
+   Lojistik: HH:MM-HH:MM | <açıklama> | Dayanak: lojistik
+   Keşif: HH:MM-HH:MM | <aktivite_adı> (Mekan: <ad veya yok>) | Dayanak: kesif
+9. Lojistik saatleriyle çelişme; gece otel aralığında yalnızca dinlenme/uyku.
+10. Hava verisinden en az bir kesin satır. Revizyon: {revizyon_sayisi}. Geri bildirim: {hata_mesaji}
 """
 
     try:
@@ -340,25 +287,37 @@ Kurallar:
         )
         return {"nihai_plan": sonuc.content}
     except Exception as e:
-        lojistik_verisi = state.get("lojistik_verisi") or {}
-        fallback_plan = _deterministic_plan_fallback(
-            lojistik_verisi,
-            kesif_verisi,
-            hata_mesaji=hata_mesaji,
-        )
-        return {
-            "nihai_plan": fallback_plan,
-            "hata_mesaji": f"Planlayıcı LLM erişim hatası: {str(e)}",
-        }
+        return _halt_payload(f"Planlayıcı LLM erişim hatası: {e}")
 
 
 def reviewer_node(state: SeyahatState):
     print("\n[🛡️] Reviewer Ajan Planı Denetliyor...")
+    if state.get("hata_durumu"):
+        return {"siradaki_ajan": "basarisiz_kapanis"}
+
     revizyon_sayisi = state.get("revizyon_sayisi", 0)
     nihai_plan = state.get("nihai_plan", "") or ""
-    kesif_verisi = state.get("kesif_verisi") or {"hava": {}, "mekanlar": [], "uyari": ""}
-    mekan_adlari = [m.get("ad", "") for m in kesif_verisi.get("mekanlar", []) if m.get("ad")]
-    norm_mekan_adlari = {re.sub(r"\s+", " ", ad.strip().lower()) for ad in mekan_adlari if ad.strip()}
+    kesif_verisi = state.get("kesif_verisi") or {
+        "hava": {},
+        "mekanlar": [],
+        "aktiviteler": [],
+        "uyari": "",
+    }
+    from multi_agent.kesif_layer import (
+        gecerli_aktivite_adlari,
+        gecerli_mekan_degerleri,
+        mekan_yok_satir_izinli,
+    )
+    from multi_agent.plan_validate import (
+        etkinlik_kesifte_var,
+        kesif_satir_mi,
+        plan_satirlari,
+        satir_etkinlik_adi,
+        satir_mekan_degeri,
+    )
+
+    norm_mekan_izinli = gecerli_mekan_degerleri(kesif_verisi)
+    norm_aktivite_adlari = gecerli_aktivite_adlari(kesif_verisi)
 
     def _reject(reason: str) -> dict:
         yeni_sayi = revizyon_sayisi + 1
@@ -380,20 +339,39 @@ def reviewer_node(state: SeyahatState):
         }
 
     # Programatik kontroller (LLM öncesi)
-    if not norm_mekan_adlari:
-        return _reject("RED: Keşif verisinde mekan listesi boş; plan doğrulanamaz.")
+    if not norm_aktivite_adlari and not norm_mekan_izinli:
+        return _reject("RED: Keşif verisinde aktivite/mekan listesi boş; plan doğrulanamaz.")
 
-    mekan_alanlari = re.findall(r"Mekan:\s*([^)|\n]+)", nihai_plan, flags=re.IGNORECASE)
-    if not mekan_alanlari:
-        return _reject("RED: Plan satırlarında zorunlu 'Mekan:' alanı yok.")
+    kesif_satirlari = [s for s in plan_satirlari(nihai_plan) if kesif_satir_mi(s)]
+    if not kesif_satirlari:
+        return _reject("RED: Planda Dayanak: kesif satırı veya (Mekan: ...) içeren keşif aktivitesi yok.")
+
+    uygunsuz_aktiviteler = []
+    for satir in kesif_satirlari:
+        etkinlik = satir_etkinlik_adi(satir)
+        if not etkinlik_kesifte_var(etkinlik, norm_aktivite_adlari):
+            uygunsuz_aktiviteler.append(etkinlik)
+
+    if uygunsuz_aktiviteler:
+        return _reject(
+            "RED: Keşif aktivitelerinde olmayan etkinlik adları: "
+            f"{', '.join(sorted(set(uygunsuz_aktiviteler))[:5])}"
+        )
 
     uygunsuz_mekanlar = []
-    for m in mekan_alanlari:
-        m_norm = re.sub(r"\s+", " ", m.strip().lower())
-        if m_norm in {"", "yok"}:
+    for satir in kesif_satirlari:
+        etkinlik = satir_etkinlik_adi(satir)
+        mekan = satir_mekan_degeri(satir)
+        if mekan is None:
+            uygunsuz_mekanlar.append("(Mekan: alanı eksik)")
             continue
-        if m_norm not in norm_mekan_adlari:
-            uygunsuz_mekanlar.append(m.strip())
+        m_norm = re.sub(r"\s+", " ", mekan.strip().lower())
+        if m_norm in {"", "yok"}:
+            if not mekan_yok_satir_izinli(etkinlik, kesif_verisi):
+                uygunsuz_mekanlar.append(f"yok — '{etkinlik}' için geçersiz (yalnızca Plaj/yüzme)")
+            continue
+        if m_norm not in norm_mekan_izinli:
+            uygunsuz_mekanlar.append(mekan.strip())
 
     if uygunsuz_mekanlar:
         return _reject(
@@ -402,22 +380,6 @@ def reviewer_node(state: SeyahatState):
 
     if re.search(r"\b(eğer|olursa|muhtemelen)\b", nihai_plan, flags=re.IGNORECASE):
         return _reject('RED: Plan koşullu ifade içeriyor ("eğer/olursa/muhtemelen" yasak).')
-
-    satirlar = [s.strip() for s in nihai_plan.splitlines() if s.strip()]
-    aktif_gun = ""
-    for satir in satirlar:
-        norm = satir.lower().replace("#", "").strip()
-        if "cuma akşamı" in norm:
-            aktif_gun = "cuma"
-            continue
-        if "cumartesi" in norm:
-            aktif_gun = "cumartesi"
-            continue
-        if "pazar" in norm:
-            aktif_gun = "pazar"
-            continue
-        if re.search(r"\bbuluş\w*\b", satir, flags=re.IGNORECASE) and aktif_gun in {"cumartesi", "pazar"}:
-            return _reject("RED: Lojistik buluşma sonrası tekrar buluşma tespit edildi.")
 
     # Programatik kontroller geçtiyse deterministik ONAY ver.
     # Böylece reviewer LLM'i yeni kurallar uydurup planı gereksiz yere RED edemez.

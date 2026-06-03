@@ -3,8 +3,12 @@ import os
 from datetime import datetime
 
 import requests
-from langchain_community.tools.tavily_search import TavilySearchResults
 from langchain_core.tools import tool
+
+try:
+    from langchain_community.tools.tavily_search import TavilySearchResults
+except ImportError:
+    TavilySearchResults = None  # type: ignore[misc, assignment]
 
 from calendar_logic import find_common_free_slots, load_calendars, summarize_calendars_for_llm
 
@@ -132,23 +136,26 @@ def _format_tavily_results(results) -> str:
     return "\n\n".join(lines)
 
 
-_tavily_search: TavilySearchResults | None = None
+_tavily_search = None
 
 
 def _get_tavily_search() -> TavilySearchResults:
     global _tavily_search
+    if TavilySearchResults is None:
+        raise RuntimeError("langchain_community yüklü değil; Tavily araması kullanılamaz.")
     if _tavily_search is None:
         _tavily_search = TavilySearchResults(max_results=3)
     return _tavily_search
 
 
 @tool
-def ortak_bos_zaman_bul(takvim_dosya_yolu: str | None = None) -> str:
-    """İki kişinin takvimini karşılaştırıp ortak boş saatleri döndürür (saf Python, halüsinasyonsuz).
-    Boş bırakılırsa varsayılan mock JSON kullanılır."""
+def ortak_bos_zaman_bul(takvim_dosya_yolu: str) -> str:
+    """Takvim JSON yolundan ortak boş saatleri döndürür (saf Python, halüsinasyonsuz)."""
     try:
-        path = (takvim_dosya_yolu or "").strip() or None
-        data = load_calendars(path) if path else load_calendars()
+        path = takvim_dosya_yolu.strip()
+        if not path:
+            return json.dumps({"hata": "takvim_dosya_yolu zorunludur", "ortak_bos_zamanlar": []}, ensure_ascii=False)
+        data = load_calendars(path)
         slots = find_common_free_slots(data)
         return json.dumps(
             {"ortak_bos_zamanlar": slots, "ozet": summarize_calendars_for_llm(data)},
@@ -160,7 +167,7 @@ def ortak_bos_zaman_bul(takvim_dosya_yolu: str | None = None) -> str:
 
 
 def _rush_hour_multiplier(departure_hour: int) -> float:
-    """İş çıkışı trafiği için basit çarpan (gerçek API yerine geliştirme aşaması)."""
+    """İş çıkışı trafiği için saat dilimine göre süre çarpanı (OSRM taban süresine uygulanır)."""
     if 17 <= departure_hour <= 19:
         return 1.45
     if 7 <= departure_hour <= 9:
@@ -168,57 +175,102 @@ def _rush_hour_multiplier(departure_hour: int) -> float:
     return 1.0
 
 
-@tool
-def trafik_ve_mesafe_getir(kalkis_sehir: str, varis_sehir: str, kalkis_saati: str) -> str:
-    """Belirtilen saatte iki şehir arası mesafe ve trafik etkisi dahil tahmini süreyi hesaplar.
-    kalkis_saati: HH:MM veya YYYY-MM-DDTHH:MM formatında."""
+def _parse_kalkis_zamani(kalkis_saati: str, tarih: str) -> datetime | None:
+    if "T" in kalkis_saati:
+        return datetime.fromisoformat(kalkis_saati)
+    if tarih:
+        return datetime.strptime(f"{tarih} {kalkis_saati}", "%Y-%m-%d %H:%M")
+    return None
+
+
+def rota_osrm_hesapla(kalkis_sehir: str, varis_sehir: str) -> dict:
+    """OSRM ile km ve süre (saniye). Hata durumunda {'hata': ...}."""
     try:
-        if "T" in kalkis_saati:
-            dt = datetime.fromisoformat(kalkis_saati)
-        else:
-            dt = datetime.strptime(kalkis_saati, "%H:%M").replace(year=2026, month=5, day=22)
-        hour = dt.hour
+        origin = _get_city_coordinates(kalkis_sehir)
+        if origin is None:
+            return {"hata": f"'{kalkis_sehir}' koordinatları bulunamadı."}
+        destination = _get_city_coordinates(varis_sehir)
+        if destination is None:
+            return {"hata": f"'{varis_sehir}' koordinatları bulunamadı."}
 
-        raw = calculate_distance_and_duration.invoke(
-            {"origin_city": kalkis_sehir, "destination_city": varis_sehir}
-        )
-        if "km" not in raw:
-            return raw
+        origin_lat, origin_lon = origin
+        dest_lat, dest_lon = destination
+        osrm_response = requests.get(
+            f"{OSRM_URL}/{origin_lon},{origin_lat};{dest_lon},{dest_lat}",
+            params={"overview": "false"},
+            timeout=15,
+        ).json()
+        if osrm_response.get("code") != "Ok" or not osrm_response.get("routes"):
+            return {"hata": f"{kalkis_sehir} → {varis_sehir} rotası hesaplanamadı."}
 
-        multiplier = _rush_hour_multiplier(hour)
-        if multiplier > 1.0:
-            return (
-                f"{raw}. Kalkış saati {dt.strftime('%H:%M')}: yoğun trafik bekleniyor "
-                f"(süreye ~%{int((multiplier - 1) * 100)} ek pay). "
-                f"Terminal/istasyona gitmeden önce bu payı plana dahil et."
-            )
-        return f"{raw}. Kalkış saati {dt.strftime('%H:%M')}: normal trafik koşulları varsayıldı."
+        route = osrm_response["routes"][0]
+        return {
+            "km": round(route["distance"] / 1000),
+            "sure_saniye_osrm": float(route["duration"]),
+            "sure_metin_osrm": _format_duration_text(route["duration"]),
+        }
     except Exception as e:
-        return f"Trafik/mesafe hesabı başarısız: {e}"
+        return {"hata": f"OSRM hatası: {e}"}
+
+
+def trafik_ve_mesafe_hesapla(
+    kalkis_sehir: str,
+    varis_sehir: str,
+    kalkis_saati: str,
+    tarih: str = "",
+) -> dict:
+    """Trafik çarpanı uygulanmış yapılandırılmış rota (LLM tahmini yok)."""
+    dt = _parse_kalkis_zamani(kalkis_saati, tarih)
+    if dt is None:
+        return {"hata": "tarih (YYYY-MM-DD) ve kalkis_saati (HH:MM) birlikte gerekli."}
+
+    base = rota_osrm_hesapla(kalkis_sehir, varis_sehir)
+    if "hata" in base:
+        return base
+
+    carpani = _rush_hour_multiplier(dt.hour)
+    sure_trafik = base["sure_saniye_osrm"] * carpani
+    yuzde = int((carpani - 1) * 100) if carpani > 1.0 else 0
+    return {
+        "kalkis_sehir": kalkis_sehir,
+        "varis_sehir": varis_sehir,
+        "kalkis_zamani": dt.isoformat(),
+        "km": base["km"],
+        "sure_saniye_osrm": base["sure_saniye_osrm"],
+        "sure_saniye_trafik_dahil": sure_trafik,
+        "sure_metin": _format_duration_text(sure_trafik),
+        "trafik_carpani": carpani,
+        "yogun_trafik": carpani > 1.0,
+        "trafik_notu": (
+            f"Kalkış {dt.strftime('%H:%M')}: yoğun trafik (~%{yuzde} ek süre)."
+            if carpani > 1.0
+            else f"Kalkış {dt.strftime('%H:%M')}: normal trafik."
+        ),
+    }
+
+
+@tool
+def trafik_ve_mesafe_getir(
+    kalkis_sehir: str,
+    varis_sehir: str,
+    kalkis_saati: str,
+    tarih: str = "",
+) -> str:
+    """İki şehir arası km ve trafik dahil süre (JSON). kalkis_saati: HH:MM veya ISO; tarih: YYYY-MM-DD."""
+    sonuc = trafik_ve_mesafe_hesapla(kalkis_sehir, varis_sehir, kalkis_saati, tarih)
+    return json.dumps(sonuc, ensure_ascii=False)
 
 
 @tool
 def bilet_ara(tarih: str, kalkis: str, varis: str, tercih: str = "otobus") -> str:
-    """Belirtilen güzergahta örnek ulaşım seçenekleri (geliştirme mock'u).
-    Gerçek entegrasyon için Tavily veya taşıyıcı API kullanılabilir."""
-    mock = {
-        "otobus": [
-            {"firma": "Metro Turizm", "kalkis": "18:30", "varis_tahmini": "23:15", "fiyat_tl": 450},
-            {"firma": "Pamukkale", "kalkis": "19:00", "varis_tahmini": "23:45", "fiyat_tl": 420},
-        ],
-        "ucak": [
-            {"firma": "THY", "kalkis": "18:45", "varis_tahmini": "19:40", "fiyat_tl": 1850},
-            {"firma": "Pegasus", "kalkis": "20:10", "varis_tahmini": "21:05", "fiyat_tl": 1200},
-        ],
-    }
-    secenekler = mock.get(tercih.lower(), mock["otobus"])
+    """Bilet/sefer araması — yalnızca yapılandırılmış API/Tavily entegrasyonu bağlandığında kullanılır."""
     return json.dumps(
         {
+            "hata": "Bilet API entegrasyonu yapılandırılmadı",
             "tarih": tarih,
             "guzergah": f"{kalkis} → {varis}",
             "tercih": tercih,
-            "not": "Mock veri — üretimde gerçek API bağlanmalı.",
-            "secenekler": secenekler,
+            "secenekler": [],
         },
         ensure_ascii=False,
         indent=2,

@@ -7,7 +7,7 @@ from dataclasses import dataclass
 from datetime import date, datetime, time, timedelta
 from pathlib import Path
 
-DEFAULT_CALENDAR_PATH = Path(__file__).parent / "data" / "mock_calendars.json"
+ROOT = Path(__file__).parent
 
 
 @dataclass(frozen=True)
@@ -39,8 +39,12 @@ def _parse_date(value: str) -> date:
     return datetime.strptime(value, "%Y-%m-%d").date()
 
 
-def load_calendars(path: str | Path | None = None) -> dict:
-    calendar_path = Path(path) if path else DEFAULT_CALENDAR_PATH
+def load_calendars(path: str | Path) -> dict:
+    if path is None or (isinstance(path, str) and not str(path).strip()):
+        raise ValueError("takvim_dosyasi zorunludur; oturum JSON'unda yol belirtin.")
+    calendar_path = Path(path)
+    if not calendar_path.is_absolute():
+        calendar_path = ROOT / calendar_path
     with calendar_path.open(encoding="utf-8") as f:
         return json.load(f)
 
@@ -117,7 +121,12 @@ def find_common_free_slots(
     """
     İki (veya daha fazla) kişinin takvimini karşılaştırır; ortak boş aralıkları döner.
     """
-    data = calendar_data if calendar_data is not None else load_calendars(path)
+    if calendar_data is None:
+        if path is None or (isinstance(path, str) and not str(path).strip()):
+            raise ValueError("find_common_free_slots: calendar_data veya geçerli path gerekli.")
+        data = load_calendars(path)
+    else:
+        data = calendar_data
     meta = data["meta"]
     kisiler = data["kisiler"]
 
@@ -155,7 +164,12 @@ def find_common_free_slots(
 
 def summarize_calendars_for_llm(calendar_data: dict | None = None, *, path: str | Path | None = None) -> str:
     """Planlayıcı düğümüne bağlam olarak verilecek kısa özet (n kişi)."""
-    data = calendar_data if calendar_data is not None else load_calendars(path)
+    if calendar_data is None:
+        if path is None or (isinstance(path, str) and not str(path).strip()):
+            raise ValueError("summarize_calendars_for_llm: calendar_data veya geçerli path gerekli.")
+        data = load_calendars(path)
+    else:
+        data = calendar_data
     kisiler = data["kisiler"]
     lines = [f"Kişiler ve şehirler ({len(kisiler)} katılımcı):"]
     for i, (key, kisi) in enumerate(kisiler.items(), 1):

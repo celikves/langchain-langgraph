@@ -1,14 +1,14 @@
 {
   "isim": "Vesile",
-  "kalkis_yeri": "Akhisar",
-  "sehir": "Akhisar",
-  "rol": "calisan",
-  "tercihler": ["tarihi mekanlar", "deniz manzarası"],
+  "kalkis_yeri": "Ankara",
+  "sehir": "Ankara",
+  "rol": "katilimci",
+  "tercihler": ["tarihi mekanlar", "deniz", "fotoğraf"],
   "butce": "orta",
   "mesai": {
     "baslangic": "08:00",
-    "bitis": "17:00",
-    "gunler": "hafta içi"
+    "bitis": "18:00",
+    "gunler": "Pazartesi–Cuma"
   },
-  "notlar": "Kullanıcı tarafındaki kişi; cuma 17:00'ye kadar mesaide."
+  "notlar": "Cuma 18:00'de mesai bitiyor; otobüs veya uçakla Antalya'ya geç çıkış planlanabilir."
 }

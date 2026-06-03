@@ -1,0 +1,45 @@
+[
+  {
+    "id": "yemek",
+    "tur": "yemek",
+    "etkin": true,
+    "mekan_zorunlu": true,
+    "temel": true,
+    "sure_dakika": 60,
+    "sorgu_sablonu": "{hedef} restoran kafe somut işletme adı site:tripadvisor.com OR site:google.com/maps",
+    "tercih_sorgu_sablonu": "{hedef} {tercih} somut işletme adı site:tripadvisor.com OR site:google.com/maps",
+    "tercih_eslestir": ["brunch", "kafe", "kahve", "tatlı", "tatli", "yemek", "lezzet", "restoran", "içecek", "icecek"]
+  },
+  {
+    "id": "plaj",
+    "tur": "plaj",
+    "etkin": true,
+    "mekan_zorunlu": false,
+    "aktivite_ad": "Plaj/yüzme",
+    "temel": true,
+    "sure_dakika": 120,
+    "sorgu_sablonu": "{hedef} halk plajı Konyaaltı Lara somut plaj adı",
+    "tercih_eslestir": ["plaj", "deniz", "yüzme", "yuzme", "sahil"]
+  },
+  {
+    "id": "muzik",
+    "tur": "muzik",
+    "etkin": true,
+    "mekan_zorunlu": true,
+    "aktivite_ad_oneki": "Canlı müzik",
+    "temel": true,
+    "sure_dakika": 120,
+    "sorgu_sablonu": "{hedef} canlı müzik kafe bar somut işletme adı site:tripadvisor.com OR site:google.com/maps",
+    "tercih_eslestir": ["canlı müzik", "canli muzik", "müzik", "muzik"]
+  },
+  {
+    "id": "gezi",
+    "tur": "gezi",
+    "etkin": true,
+    "mekan_zorunlu": true,
+    "sure_dakika": 90,
+    "sorgu_sablonu": "{hedef} müze antik kent gezilecek yer somut ad site:tripadvisor.com",
+    "tercih_sorgu_sablonu": "{hedef} {tercih} somut mekan adı site:tripadvisor.com",
+    "tercih_eslestir": ["tarih", "müze", "muze", "antik", "kale", "yürüyüş", "yuruyus", "park", "manzara", "fotoğraf", "fotograf"]
+  }
+]
